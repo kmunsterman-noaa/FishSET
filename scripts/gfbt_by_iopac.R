@@ -295,7 +295,7 @@ create_alternative_choice(dat = astoriaMainDataTable,
                           occasion = "zonal centroid", 
                           occasion_var = "start_loc",
                           alt_var = "zonal centroid", 
-                          min.haul = 1, 
+                          min.haul = 30, 
                           zoneID = "new_ZoneID", 
                           zone.cent.name = "astoriaZoneCentroid")
 
@@ -312,6 +312,8 @@ zOut$table
 zOut$plot
 
 # Create expected catch matrices
+
+##############################################
 # Run in parallel across multiple cores
 
 # Create a vector of the 'temp.window' values to iterate over
@@ -352,6 +354,21 @@ future_walk(temp.window_values, ~ {
 })
 toc()
 
+##############################################
+
+# Create expectations
+create_expectations(dat = astoriaMainDataTable, 
+                    project = project, 
+                    catch = "tow_lbs_thousands",
+                    temp.var = "date_time", 
+                    temp.window = 7, 
+                    temp.lag = 1, 
+                    year.lag = 0,
+                    temporal = 'daily', 
+                    empty.catch = NA, 
+                    empty.expectation = 1e-14,
+                    default.exp = FALSE, 
+                    replace.output = TRUE)
 
 # Check model data
 check_model_data(astoriaMainDataTable, 
@@ -367,7 +384,7 @@ make_model_design(project = project,
                   likelihood = "logit_c", 
                   initparams = c(0,0),
                   startloc = "start_loc",
-                  mod.name = "logit_c_mod3", 
+                  mod.name = "logit_c_mod1", 
                   expectcatchmodels = list('individual'))
 
 # RUN MODEL ---------------------------------------------------------------------------------------
