@@ -5,6 +5,7 @@
 # Install the FishSET package (Note: Local Install worked best -- reinstalled 09/2025)
 # install.packages("~/Documents/FishSET/FishSET-1.1.0.tar.gz", repos = NULL, type = "source")
 # devtools::install_github("noaa-nwfsc/FishSET")
+devtools::load_all()
 
 library(FishSET)
 library(tidyverse)
@@ -139,46 +140,21 @@ zOut <- zone_summary(dat = eurekaMainDataTable[z_ind, ],
 zOut$table
 zOut$plot
 
-# Create expected catch matrices
-# Run in parallel across multiple cores
 
-# Create a vector of the 'temp.window' values to iterate over
-temp.window_values <- c(7, 14, 30, 90, 180)
+# Create expectations
+create_expectations(dat = eurekaMainDataTable, 
+                    project = project, 
+                    catch = "tow_lbs_thousands",
+                    temp.var = "date_time", 
+                    temp.window = 14, 
+                    temp.lag = 1, 
+                    year.lag = 0,
+                    temporal = 'daily', 
+                    empty.catch = NA, 
+                    empty.expectation = 1e-14,
+                    default.exp = FALSE, 
+                    replace.output = TRUE)
 
-# Configure parallel plan - with one core free for OS to run smoothly
-workers_to_use <- parallel::detectCores() - 1
-plan(multicore, workers = workers_to_use)
-
-# Run the function in parallel
-message(paste("Starting parallel processing across", workers_to_use, "cores..."))
-
-tic()
-future_walk(temp.window_values, ~ {
-  
-  # makes sure  FishSET package is loaded on each parallel worker
-  library(FishSET)
-  
-  message(paste("Processing temp.window =", .x))
-  
-  create_expectations(
-    dat = eurekaMainDataTable,
-    project = project,
-    catch = "tow_lbs_thousands",
-    temp.var = "date_time",
-    temp.window = .x,
-    temp.lag = 1,
-    year.lag = 0,
-    temporal = 'daily',
-    empty.catch = NA,
-    empty.expectation = 1e-14,
-    default.exp = FALSE,
-    replace.output = FALSE
-  )
-  
-  message(paste("Finished temp.window =", .x))
-  
-})
-toc()
 
 # Check model data
 check_model_data(eurekaMainDataTable, 
@@ -192,9 +168,9 @@ check_model_data(eurekaMainDataTable,
 make_model_design(project = project, 
                   catchID = "tow_lbs_thousands",
                   likelihood = "logit_c", 
-                  initparams = c(0,0,0,0,0,0),
+                  initparams = c(0,0),
                   startloc = "start_loc",
-                  mod.name = "logit_c_mod2", 
+                  mod.name = "logit_c_mod1", 
                   expectcatchmodels = list('individual'))
 
 # RUN MODEL ---------------------------------------------------------------------------------------
@@ -207,6 +183,19 @@ toc()
 # MODEL OUTPUTS -----------------------------------------------------------------------------------
 model_params(project = project, 
              output = "print")
+
+# CROSS VALIDATION --------------------------------------------------------------------------------
+cross_validation(
+  project,
+  mod.name="logit_c_mod1",
+  zone.dat = "new_ZoneID",
+  groups = "Observations",
+  k = 5,
+  time_var = NULL,
+  use.scalers = FALSE,
+  scaler.func = NULL
+)
+
 
 
 # astoria -----------------------------------------------------------------------------------------
@@ -295,7 +284,7 @@ create_alternative_choice(dat = astoriaMainDataTable,
                           occasion = "zonal centroid", 
                           occasion_var = "start_loc",
                           alt_var = "zonal centroid", 
-                          min.haul = 30, 
+                          min.haul = 1, 
                           zoneID = "new_ZoneID", 
                           zone.cent.name = "astoriaZoneCentroid")
 
@@ -313,50 +302,6 @@ zOut$plot
 
 # Create expected catch matrices
 
-##############################################
-# Run in parallel across multiple cores
-
-# Create a vector of the 'temp.window' values to iterate over
-temp.window_values <- c(7, 14, 30, 90, 180)
-
-# Configure parallel plan - with one core free for OS to run smoothly
-workers_to_use <- parallel::detectCores() - 1
-plan(multicore, workers = workers_to_use)
-
-# Run the function in parallel
-message(paste("Starting parallel processing across", workers_to_use, "cores..."))
-
-tic()
-future_walk(temp.window_values, ~ {
-  
-  # makes sure  FishSET package is loaded on each parallel worker
-  library(FishSET)
-  
-  message(paste("Processing temp.window =", .x))
-  
-  create_expectations(
-    dat = astoriaMainDataTable,
-    project = project,
-    catch = "tow_lbs_thousands",
-    temp.var = "date_time",
-    temp.window = .x,
-    temp.lag = 1,
-    year.lag = 0,
-    temporal = 'daily',
-    empty.catch = NA,
-    empty.expectation = 1e-14,
-    default.exp = FALSE,
-    replace.output = FALSE
-  )
-  
-  message(paste("Finished temp.window =", .x))
-  
-})
-toc()
-
-##############################################
-
-# Create expectations
 create_expectations(dat = astoriaMainDataTable, 
                     project = project, 
                     catch = "tow_lbs_thousands",
@@ -485,7 +430,9 @@ create_alternative_choice(dat = morroMainDataTable,
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
                           zoneID = "new_ZoneID", 
-                          zone.cent.name = "morroZoneCentroid")
+                          zone.cent.name = "morroZoneCentroid",
+                          spatname = morro5x5SpatTable,
+                          spatID = "GRID5KM_ID")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
@@ -541,6 +488,23 @@ future_walk(temp.window_values, ~ {
 toc()
 
 
+##############################################
+
+# Create expectations
+create_expectations(dat = morroMainDataTable, 
+                    project = project, 
+                    catch = "tow_lbs_thousands",
+                    temp.var = "date_time", 
+                    temp.window = 14, 
+                    temp.lag = 1, 
+                    year.lag = 0,
+                    temporal = 'daily', 
+                    empty.catch = NA, 
+                    empty.expectation = 1e-14,
+                    default.exp = FALSE, 
+                    replace.output = TRUE)
+
+
 # Check model data
 check_model_data(morroMainDataTable, 
                  project = project, 
@@ -553,7 +517,7 @@ check_model_data(morroMainDataTable,
 make_model_design(project = project, 
                   catchID = "tow_lbs_thousands",
                   likelihood = "logit_c", 
-                  initparams = c(0,0,0,0,0,0),
+                  initparams = c(0,0),
                   startloc = "start_loc",
                   mod.name = "logit_c_mod1", 
                   expectcatchmodels = list('individual')) 
@@ -567,6 +531,20 @@ discretefish_subroutine(project = project,
 model_params(project = project, 
              output = "print")
 
+
+cross_validation(
+  project,
+  mod.name="logit_c_mod1",
+  zone.dat = "ZoneID",
+  groups = "Observations",
+  k = 5,
+  time_var = NULL,
+  use.scalers = FALSE,
+  scaler.func = NULL
+)
+
+clean_dates <- morroMainDataTable %>%
+mutate(cleaned_dates = sub(" .*", "\\1", date_time))
 
 # crescent city ----------------------------------------------------------------------------------------
 
