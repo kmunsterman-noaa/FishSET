@@ -267,6 +267,12 @@ create_expectations <-
   }
   
   # user-defined ----
+  
+  # KSM: work-around to get cross_validation() to run
+  if(class(dataset[[temp.var]]) != "Date"){
+    dataset[[temp.var]] <- as.Date(dataset[[temp.var]])
+  }
+
   user_exp <- calc_exp(dataset = dataset, catch = catch, price = price,
                        defineGroup = defineGroup, temp.var = temp.var, 
                        temp.window = temp.window, temp.lag = temp.lag, 

@@ -783,7 +783,7 @@ date_parser <- function(dates, args=NULL) {
   #' @importFrom lubridate dym ymd myd ydm dmy mdy
 
   dates <- trimws(dates)
-  dates <- sub(" .*", "\\1", dates)
+  dates <- sub(" .*", "\\1", dates) 
   if (!all(is.na(suppressWarnings(lubridate::mdy(dates))))) {
     lubridate::mdy(dates, args)
   } else if (!all(is.na(suppressWarnings(lubridate::dmy(dates))))) {

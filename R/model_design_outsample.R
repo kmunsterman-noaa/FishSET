@@ -93,6 +93,12 @@ model_design_outsample <- function(project, mod.name, outsample.mod.name = NULL,
   # Read main alt choice matrix and extract settings
   alt_insample <- unserialize_table(paste0(project,"AltMatrix"), project)
   
+  # KSM: work-around to get cross_validation() to run
+  if(alt_insample$spatname == "spat"){
+    alt_insample$spatname <- NULL
+  }
+  
+  
   # Create out-of-sample alternative choice matrix
   create_alternative_choice(outsample_dat, project, occasion = alt_insample$occasion, occasion_var = alt_insample$occasion_var,
                             alt_var = alt_insample$alt_var, dist.unit = alt_insample$altChoiceUnits, min.haul = 0, zoneID = alt_insample$zoneID,
