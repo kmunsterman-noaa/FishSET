@@ -1105,6 +1105,15 @@ load_grid <- function(grid, name, project, over_write = TRUE) {
   }
   grid <- tibble::as_tibble(grid)
   
+  # KSM adding this for grid table to work
+  # Check for a 'date_time' column and format it if it exists
+  if ("date_time" %in% names(grid)) {
+    message("Found 'date_time' column, converting to character for database.")
+    
+    # Convert the Date object to a character string before saving
+    grid$date_time <- as.character(grid$date_time)
+  }
+  
   if (check == FALSE) { 
     
     warning("Grid table not saved.")

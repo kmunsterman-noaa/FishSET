@@ -1,7 +1,4 @@
-### NOTE FROM PAUL: The test for the scallop example is at the bottom of that script starting at the DEFINE VARIABLES section. 
-# Also, the set up for RTMB is pretty much the same as before, just more streamlined. 
-# Since you got it working before it should be easy to take the example here. 
-# The additional functions for predicting probabilities and the welfare analysis all use RTMB outputs, so I don't anticipate running into any errors with those functions.
+
 # =================================================================================================
 # File: rtmb_fishset.R
 # Description: This script performs a full analysis workflow for a fishery choice model using RTMB.
@@ -73,7 +70,6 @@ cond_logit_model <- function(response_matrix, covariate_list, start_params) {
     Std_error = summary_sdr[,"Std. Error"],
     z_scores = z_scores,
     p_value = 2 * pnorm(-abs(z_scores))
-    
   )
   
   return(list(fit = fit, sdr = sdr, results = results))
@@ -204,6 +200,8 @@ calculate_welfare_change <- function(model_fit,
   total_welfare_changes <- numeric(beta_samples)
   # Store all per-trip welfare changes for overall mean and se
   all_trip_welfare_changes <- vector("list", beta_samples)
+  # Store trip loss
+  welfare_change_per_trip <- matrix(NA, nrow=dim(covariate_list[[1]])[1], ncol=beta_samples)
   
   # Loop through each simulated set of betas
   for (i in 1:beta_samples) {
@@ -227,6 +225,7 @@ calculate_welfare_change <- function(model_fit,
     
     # Calculate and store the change for this simulation
     welfare_change <- welfare_after - welfare_before
+    welfare_change_per_trip[,i] <- welfare_change
     all_trip_welfare_changes[[i]] <- welfare_change
     total_welfare_changes[i] <- sum(welfare_change)
   }
@@ -235,10 +234,14 @@ calculate_welfare_change <- function(model_fit,
   all_trip_changes_vec <- unlist(all_trip_welfare_changes)
   
   # Summarize the results, reporting losses as positive values
-  results_df <- data.frame(
-    Metric = c("Per Trip", "Total Sample"),
-    Mean_Welfare_Loss = c(-mean(all_trip_changes_vec), -mean(total_welfare_changes)),
-    Standard_Error = c(sd(all_trip_changes_vec), sd(total_welfare_changes))
+  results_df <- list(
+    summary = data.frame(
+      Metric = c("Per Trip", "Total Sample"),
+      Mean_Welfare_Loss = c(-mean(all_trip_changes_vec), -mean(total_welfare_changes)),
+      Standard_Error = c(sd(all_trip_changes_vec), sd(total_welfare_changes))
+    ),
+    
+    welfare_change_per_trip
   )
 }
 
@@ -284,12 +287,9 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 }
 
 # DEFINE VARIABLES --------------------------------------------------------------------------------
-## Note: Run all FishSET function prior to this; up until discretefish_subroutine()
-## Note: This is completed in gfbt_by_iopac.R
-
 
 # Set the FishSET project name
-project <- "sf"
+project <- "gfbt_erk"
 
 # DATA PREPARATION --------------------------------------------------------------------------------
 
@@ -303,28 +303,27 @@ unique_zones <- unique(altc_data$greaterNZ)
 main_data <- main_data %>%
   filter(ZoneID %in% unique_zones)
 
-# Create a long format dataframe for all possible choices
-# 'haul_id' in this example is the unique row/observation ID
+# Create a long format data frame for all possible choices
+# TRIPID in this example is the unique row/observation ID
 df <- data.frame(
   zones = rep(unique_zones, length(main_data$haul_id)),
   obsID = rep(main_data$haul_id, each = length(unique_zones))
-  )
+)
 
-# Identify the chosen zone for each haul
+# Identify the chosen zone for each trip/haul/observation
 df$zone_obs <- paste0(df$zones, df$obsID)
 selected <- paste0(main_data$ZoneID, main_data$haul_id)
 df$selected <- 0
 df$selected[which(df$zone_obs %in% selected)] <- 1
 df$zone_obs <- NULL # Clean up the helper column
 
-# Reshape covariate data (distance, catch, and fuel) to long format and join
-
+# Reshape covariate data (distance and catch) to long format and join
 distance_long <- as.data.frame(mdf$distance) %>%
   mutate(haul_id = main_data$haul_id) %>%
   pivot_longer(
     cols = -c(haul_id),
     names_to = "zones",
-    values_to = "distance_from_haul")
+    values_to = "distance_from_port")
 
 exp_catch_long <- as.data.frame(mdf$gridVaryingVariables$exp1) %>%
   mutate(haul_id = main_data$haul_id) %>%
@@ -333,27 +332,17 @@ exp_catch_long <- as.data.frame(mdf$gridVaryingVariables$exp1) %>%
     names_to = "zones",
     values_to = "expected_catch")
 
-#fuel_long <- as.data.frame(mdf$vars1) %>%
-  #mutate(haul_id = main_data$haul_id) %>%
-  #pivot_longer(
-    #cols = -c(haul_id),
-    #names_to = "zones",
-    #values_to = "price_per_km")
-
-
 # Join all data together
 df_long <- df %>%
   mutate(zones = as.character(zones)) %>%
   left_join(distance_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
   left_join(exp_catch_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
-  #left_join(fuel_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
   rename(ZoneID = zones, haul_id = obsID) %>%
-  dplyr::select(ZoneID, haul_id, selected, distance_from_haul, expected_catch) %>% #fuel
-  mutate(distance_from_haul = as.numeric(distance_from_haul))
+  select(ZoneID, haul_id, selected, distance_from_port, expected_catch) %>%
+  mutate(distance_from_port = as.numeric(distance_from_port))
 
 # Final data cleaning: remove zones with NA distance values
-zones_to_remove <- unique(df_long[which(is.na(df_long$distance_from_haul)),]$ZoneID)
-
+zones_to_remove <- unique(df_long[which(is.na(df_long$distance_from_port)),]$ZoneID)
 df_long <- df_long %>% 
   filter(!(ZoneID %in% zones_to_remove))
 
@@ -362,19 +351,18 @@ model_matrices <- pivot_to_wide_matrices(
   data = df_long,
   id_col = "haul_id",
   names_from_col = "ZoneID",
-  values_to_spread = c("selected", "expected_catch", "distance_from_haul") #fuel
+  values_to_spread = c("selected", "expected_catch", "distance_from_port")
 )
 
 Y <- model_matrices$selected
 catch <- model_matrices$expected_catch
-distance <- model_matrices$distance_from_haul
-#fuel <- model_matrices$fuel
+distance <- model_matrices$distance_from_port
 
 # MODEL FITTING -----------------------------------------------------------------------------------
 
 # Define inputs for conditional logit model
-covariates <- list(catch = catch, distance = distance) #fuel = fuel)
-starting_params <- list(beta_catch = 0, beta_distance = 0) #beta_fuel = 0)
+covariates <- list(catch = catch, distance = distance)
+starting_params <- list(beta_catch = 0, beta_distance = 0)
 
 # Fit the conditional logit model
 results <- cond_logit_model(response_matrix = Y,
@@ -391,18 +379,7 @@ print(results)
 # Second item in list is predicted probabilities for each zone
 predicted_probabilities <- predict_choice_probs(results, covariates)
 
-### THIS IS WHAT I NEED TO DO#####
-# OUTPUT FOLDER TO PROJECT
-filename <- paste0(locoutput(project), project, "_closures.yaml")
 
-#this is how we make yaml:
-  yaml::write_yaml(rv$edit, filename)
-
-## in output
-  closures.yaml 
-###################
-  
-  
 # --- Load and process the zone closure scenario ---
 # IMPORTANT: First need to design a closure scenario using FishSET::zone_closure()
 scenario_name <- "closure_1"

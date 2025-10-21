@@ -5,7 +5,9 @@
 # Install the FishSET package (Note: Local Install worked best -- reinstalled 09/2025)
 # install.packages("~/Documents/FishSET/FishSET-1.1.0.tar.gz", repos = NULL, type = "source")
 # devtools::install_github("noaa-nwfsc/FishSET")
-devtools::load_all()
+
+# any updates to fishSET functions must be run and then reload the package using this::
+# devtools::load_all()
 
 library(FishSET)
 library(tidyverse)
@@ -28,15 +30,14 @@ setwd("~/Documents/GitHub/FishSET/data/confidential/FishSETFolder")
 
 # Load spatial data
 # (1) 5x5km grid cell
-
 spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/master_5km_grid_tmer.shp"
 
 # (2) Port coordinates
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # (2) WEA Spatial Scenarios
-scen_1 <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/weas/OSW_Scen_1.rds"
-scen_2 <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/weas/OSW_Scen_2.rds"
+scen_1 <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/weas/scen_1_grid/scen_1_grid.shp"
+scen_2 <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/weas/scen_2_grid/scen_2_grid.shp"
 
 # eureka -----------------------------------------------------------------------------------------
 
@@ -47,6 +48,8 @@ project <- "eureka"
 
 # Load main data
 eureka_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/EUREKA.rds"
+EUREKA <- readRDS("~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/EUREKA.rds")
+update_folderpath()
 load_maindata(eureka_data, project = "eureka", over_write = TRUE)
 eurekaMainDataTable <- table_view("eurekaMainDataTable", 
                                     project = "eureka")
@@ -61,6 +64,10 @@ load_port(ports, port_name = "port_code", project = "eureka")
 eurekaPortTable <- table_view("eurekaPortTable",
                                 project = "eureka")
 
+# Load closure data
+load_spatial(scen_1, name = "closure_1", project = "eureka")
+load_spatial(scen_2, name = "closure_2", project = "eureka")
+
 # DATA PREP ---------------------------------------------------------------------------------------
 # Scale catch data to tens
 eurekaMainDataTable <- create_var_num(dat = eurekaMainDataTable, 
@@ -69,21 +76,21 @@ eurekaMainDataTable <- create_var_num(dat = eurekaMainDataTable,
                                         y = 1000, 
                                         method = 'division', 
                                         name = 'tow_lbs_thousands')
-
+# I think I can delete this?
 # Assign zone ID for primary data
-eurekaMainDataTable <- assignment_column(dat = eurekaMainDataTable, 
-                                           project = project, 
-                                           spat = eureka5x5SpatTable,
-                                           lon.dat = "centro_lon", 
-                                           lat.dat = "centro_lat", 
-                                           cat = "GRID5KM_ID", 
-                                           name = "new_ZoneID")
+#eurekaMainDataTable <- assignment_column(dat = eurekaMainDataTable, 
+                                           #project = project, 
+                                           #spat = eureka5x5SpatTable,
+                                           #lon.dat = "centro_lon", 
+                                           #lat.dat = "centro_lat", 
+                                           #cat = "GRID5KM_ID", 
+                                           #name = "new_ZoneID")
 
 # Plot zone summary
 zone_summary(dat = eurekaMainDataTable, 
                     spat = eureka5x5SpatTable, 
                     project = project, 
-                    zone.dat = "new_ZoneID", 
+                    zone.dat = "ZoneID", 
                     zone.spat = "GRID5KM_ID", 
                     output = "plot")
 
@@ -105,7 +112,7 @@ eurekaMainDataTable <- create_startingloc(dat = eurekaMainDataTable,
                                             trip_id = "trip_id", 
                                             haul_order = "haul_counter", 
                                             starting_port = "depart_port", 
-                                            zoneID = "new_ZoneID", 
+                                            zoneID = "ZoneID", 
                                             spatID = "GRID5KM_ID", 
                                             name = "start_loc")
 
@@ -114,7 +121,7 @@ eurekaMainDataTable <- create_startingloc(dat = eurekaMainDataTable,
 # Check NAs 
 eurekaMainDataTable <- na_filter(eurekaMainDataTable, 
                                    project = project, 
-                                   x = "tow_lb",
+                                   x = c("tow_lbs_thousands"),
                                    remove = TRUE,
                                    over_write = TRUE)
 
@@ -125,7 +132,7 @@ create_alternative_choice(dat = eurekaMainDataTable,
                           occasion_var = "start_loc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
-                          zoneID = "new_ZoneID", 
+                          zoneID = "ZoneID", 
                           zone.cent.name = "eurekaZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
@@ -133,20 +140,19 @@ z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 zOut <- zone_summary(dat = eurekaMainDataTable[z_ind, ], 
                      spat = eureka5x5SpatTable, 
                      project = project, 
-                     zone.dat = "new_ZoneID",
+                     zone.dat = "ZoneID",
                      zone.spat = "GRID5KM_ID", 
                      output = "tab_plot")
 
 zOut$table
 zOut$plot
 
-
 # Create expectations
 create_expectations(dat = eurekaMainDataTable, 
                     project = project, 
                     catch = "tow_lbs_thousands",
                     temp.var = "date_time", 
-                    temp.window = 14, 
+                    temp.window = 7, 
                     temp.lag = 1, 
                     year.lag = 0,
                     temporal = 'daily', 
@@ -170,8 +176,16 @@ make_model_design(project = project,
                   likelihood = "logit_c", 
                   initparams = c(0,0),
                   startloc = "start_loc",
-                  mod.name = "logit_c_mod1", 
+                  mod.name = "logit_c_mod1",
+                  vars1 = "price_per_km",
                   expectcatchmodels = list('individual'))
+
+# Design closure
+FishSET::zone_closure(project = project,
+             spatdat = eureka5x5SpatTable,
+             cat = "GRID5KM_ID")
+
+# STOP HERE AND RUN RTMB
 
 # RUN MODEL ---------------------------------------------------------------------------------------
 tic()
@@ -195,8 +209,6 @@ cross_validation(
   use.scalers = FALSE,
   scaler.func = NULL
 )
-
-
 
 # astoria -----------------------------------------------------------------------------------------
 
