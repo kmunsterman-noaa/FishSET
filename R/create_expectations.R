@@ -160,87 +160,6 @@ create_expectations <-
       dataset[[temp_var]] <- as.Date(dataset[[temp_var]])
     }
     
-<<<<<<< HEAD
-    if (isTRUE(default.exp) || "older" %in% default.exp) {
-      
-      older_exp <- calc_exp(dataset = dataset, catch = catch, price = price,
-                            defineGroup = defineGroup, temp.var = temp.var,
-                            temp.window = 7, temp.lag = 2, year.lag = 0, 
-                            temporal = temporal, calc.method = calc.method,
-                            lag.method = lag.method, empty.catch = empty.catch,
-                            empty.expectation = empty.expectation, dummy.exp = dummy.exp,
-                            Alt = Alt)
-    }
-   
-    if (isTRUE(default.exp) || "oldest" %in% default.exp) {
-      
-      oldest_exp <- calc_exp(dataset = dataset, catch = catch, price = price,
-                             defineGroup = defineGroup, temp.var = temp.var,
-                             temp.window = 7, temp.lag = 8, year.lag = 0,
-                             temporal = temporal, calc.method = calc.method,
-                             lag.method = lag.method, empty.catch = empty.catch,
-                             empty.expectation = empty.expectation, dummy.exp = dummy.exp,
-                             Alt = Alt)
-    }
-   
-    if (isTRUE(default.exp) || "logbook" %in% default.exp) {
-      
-      if (!is_value_empty(defineGroup)) {
-        
-        logbook_exp <- calc_exp(dataset = dataset, catch = catch, price = price,
-                                defineGroup = defineGroup, temp.var = temp.var,
-                                temp.window = 14, temp.lag = 7, year.lag = 1, 
-                                temporal = temporal, calc.method = calc.method,
-                                lag.method = lag.method, empty.catch = empty.catch,
-                                empty.expectation = empty.expectation, dummy.exp = dummy.exp,
-                                Alt = Alt)
-      }
-    }
-  }
-  
-  # user-defined ----
-  
-  # KSM: work-around to get cross_validation() to run
-  if(class(dataset[[temp.var]]) != "Date"){
-    dataset[[temp.var]] <- as.Date(dataset[[temp.var]])
-  }
-
-  user_exp <- calc_exp(dataset = dataset, catch = catch, price = price,
-                       defineGroup = defineGroup, temp.var = temp.var, 
-                       temp.window = temp.window, temp.lag = temp.lag, 
-                       year.lag = year.lag, temporal = temporal, 
-                       calc.method = calc.method, lag.method = lag.method, 
-                       empty.catch = empty.catch, empty.expectation = empty.expectation,
-                       dummy.exp = dummy.exp, weight_avg = weight_avg, Alt = Alt)
-  
-  r <- nchar(sub("\\.[0-9]+", "", mean(as.matrix(user_exp$exp), na.rm = TRUE))) 
-  sscale <- 10^(r - 1)
-
-  # exp catch list ----
-  ExpectedCatch <- list(
-    scale = sscale,
-    # TODO: Use alternative approach for determining units
-    units = ifelse(grepl("lbs|pounds", catch, ignore.case = TRUE), "LBS", "MTS"), # units of catch data
-    recent = recent_exp$exp,
-    recent_dummy = recent_exp$dummy,
-    recent_settings = recent_exp$settings,
-    older = older_exp$exp,
-    older_dummy = older_exp$dummy,
-    older_settings = older_exp$settings,
-    oldest = oldest_exp$exp,
-    oldest_dummy = oldest_exp$dummy,
-    oldest_settings = oldest_exp$settings,
-    logbook = logbook_exp$exp,
-    logbook_dummy = logbook_exp$dummy,
-    logbook_settings = logbook_exp$settings,
-    exp1 = user_exp$exp,
-    exp1_dummy = user_exp$dummy,
-    exp1_settings = user_exp$settings
-  )
-  
-  if(!outsample){
-    single_sql <- paste0(project, "ExpectedCatch")
-=======
     # Calculate expactations ----------------------------------------------------------------------
     user_exp <- calc_exp(dataset = dataset, 
                          catch = catch, 
@@ -257,7 +176,6 @@ create_expectations <-
                          dummy_exp = dummy_exp, 
                          weight_avg = weight_avg, 
                          Alt = Alt)
->>>>>>> upstream/master
     
     # Determine scaling factor for the results ----------------------------------------------------
     r <- nchar(sub("\\.[0-9]+", "", mean(as.matrix(user_exp$exp), na.rm = TRUE))) 
