@@ -1,9 +1,5 @@
-### NOTE FROM PAUL: The test for the scallop example is at the bottom of that script starting at the DEFINE VARIABLES section. 
-# Also, the set up for RTMB is pretty much the same as before, just more streamlined. 
-# Since you got it working before it should be easy to take the example here. 
-# The additional functions for predicting probabilities and the welfare analysis all use RTMB outputs, so I don't anticipate running into any errors with those functions.
 # =================================================================================================
-# File: rtmb_fishset.R
+# File: rtmb_gfbt.R
 # Description: This script performs a full analysis workflow for a fishery choice model using RTMB.
 #              It includes data preparation, model fitting, prediction of choice probabilities,
 #              simulation of a zone closure policy, and a welfare analysis of the closure.
@@ -73,7 +69,6 @@ cond_logit_model <- function(response_matrix, covariate_list, start_params) {
     Std_error = summary_sdr[,"Std. Error"],
     z_scores = z_scores,
     p_value = 2 * pnorm(-abs(z_scores))
-    
   )
   
   return(list(fit = fit, sdr = sdr, results = results))
@@ -204,6 +199,8 @@ calculate_welfare_change <- function(model_fit,
   total_welfare_changes <- numeric(beta_samples)
   # Store all per-trip welfare changes for overall mean and se
   all_trip_welfare_changes <- vector("list", beta_samples)
+  # Store trip loss
+  welfare_change_per_trip <- matrix(NA, nrow=dim(covariate_list[[1]])[1], ncol=beta_samples)
   
   # Loop through each simulated set of betas
   for (i in 1:beta_samples) {
@@ -227,6 +224,7 @@ calculate_welfare_change <- function(model_fit,
     
     # Calculate and store the change for this simulation
     welfare_change <- welfare_after - welfare_before
+    welfare_change_per_trip[,i] <- welfare_change
     all_trip_welfare_changes[[i]] <- welfare_change
     total_welfare_changes[i] <- sum(welfare_change)
   }
@@ -235,10 +233,14 @@ calculate_welfare_change <- function(model_fit,
   all_trip_changes_vec <- unlist(all_trip_welfare_changes)
   
   # Summarize the results, reporting losses as positive values
-  results_df <- data.frame(
-    Metric = c("Per Trip", "Total Sample"),
-    Mean_Welfare_Loss = c(-mean(all_trip_changes_vec), -mean(total_welfare_changes)),
-    Standard_Error = c(sd(all_trip_changes_vec), sd(total_welfare_changes))
+  results_df <- list(
+    summary = data.frame(
+      Metric = c("Per Trip", "Total Sample"),
+      Mean_Welfare_Loss = c(-mean(all_trip_changes_vec), -mean(total_welfare_changes)),
+      Standard_Error = c(sd(all_trip_changes_vec), sd(total_welfare_changes))
+    ),
+    
+    welfare_change_per_trip
   )
 }
 
@@ -285,18 +287,17 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 
 # DEFINE VARIABLES --------------------------------------------------------------------------------
 ## Note: Run all FishSET function prior to this; up until discretefish_subroutine()
-## Note: This is completed in gfbt_by_iopac.R
-
+## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "sf"
+project <- "brookings"
 
 # DATA PREPARATION --------------------------------------------------------------------------------
 
 # Load data from the FishSET project
 main_data <- table_view(paste0(project, "MainDataTable"), project)
 altc_data <- unserialize_table(paste0(project,"AltMatrix"), project)
-mdf <- model_design_list(project)[[1]] # Grab the first model design
+mdf <- model_design_list(project)[[1]]
 
 # Filter data based on zones present in the alternative catch matrix
 unique_zones <- unique(altc_data$greaterNZ)
@@ -305,6 +306,7 @@ main_data <- main_data %>%
 
 # Create a long format dataframe for all possible choices
 # 'haul_id' in this example is the unique row/observation ID
+
 df <- data.frame(
   zones = rep(unique_zones, length(main_data$haul_id)),
   obsID = rep(main_data$haul_id, each = length(unique_zones))
@@ -315,10 +317,11 @@ df$zone_obs <- paste0(df$zones, df$obsID)
 selected <- paste0(main_data$ZoneID, main_data$haul_id)
 df$selected <- 0
 df$selected[which(df$zone_obs %in% selected)] <- 1
-df$zone_obs <- NULL # Clean up the helper column
+df$zone_obs <- NULL
 
 # Reshape covariate data (distance, catch, and fuel) to long format and join
 
+# distance
 distance_long <- as.data.frame(mdf$distance) %>%
   mutate(haul_id = main_data$haul_id) %>%
   pivot_longer(
@@ -326,6 +329,7 @@ distance_long <- as.data.frame(mdf$distance) %>%
     names_to = "zones",
     values_to = "distance_from_haul")
 
+# expected catch
 exp_catch_long <- as.data.frame(mdf$gridVaryingVariables$exp1) %>%
   mutate(haul_id = main_data$haul_id) %>%
   pivot_longer(
@@ -333,22 +337,13 @@ exp_catch_long <- as.data.frame(mdf$gridVaryingVariables$exp1) %>%
     names_to = "zones",
     values_to = "expected_catch")
 
-#fuel_long <- as.data.frame(mdf$vars1) %>%
-  #mutate(haul_id = main_data$haul_id) %>%
-  #pivot_longer(
-    #cols = -c(haul_id),
-    #names_to = "zones",
-    #values_to = "price_per_km")
-
-
 # Join all data together
 df_long <- df %>%
   mutate(zones = as.character(zones)) %>%
   left_join(distance_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
   left_join(exp_catch_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
-  #left_join(fuel_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
   rename(ZoneID = zones, haul_id = obsID) %>%
-  dplyr::select(ZoneID, haul_id, selected, distance_from_haul, expected_catch) %>% #fuel
+  dplyr::select(ZoneID, haul_id, selected, distance_from_haul, expected_catch) %>%
   mutate(distance_from_haul = as.numeric(distance_from_haul))
 
 # Final data cleaning: remove zones with NA distance values
@@ -362,19 +357,22 @@ model_matrices <- pivot_to_wide_matrices(
   data = df_long,
   id_col = "haul_id",
   names_from_col = "ZoneID",
-  values_to_spread = c("selected", "expected_catch", "distance_from_haul") #fuel
+  values_to_spread = c("selected", "expected_catch", "distance_from_haul")
 )
 
 Y <- model_matrices$selected
 catch <- model_matrices$expected_catch
 distance <- model_matrices$distance_from_haul
-#fuel <- model_matrices$fuel
+
+# fuel cost matrix
+price_per_km <- main_data$price_per_km
+fuel <- price_per_km * distance
 
 # MODEL FITTING -----------------------------------------------------------------------------------
 
 # Define inputs for conditional logit model
-covariates <- list(catch = catch, distance = distance) #fuel = fuel)
-starting_params <- list(beta_catch = 0, beta_distance = 0) #beta_fuel = 0)
+covariates <- list(catch = catch, fuel = fuel)
+starting_params <- list(beta_catch = 0, beta_fuel = 0)
 
 # Fit the conditional logit model
 results <- cond_logit_model(response_matrix = Y,
@@ -385,45 +383,28 @@ print(results)
 
 # POLICY SIMULATION AND WELFARE ANALYSIS ----------------------------------------------------------
 
-
 # --- Predict baseline probabilities ---
 # First item in list is predicted probabilities for each trip
 # Second item in list is predicted probabilities for each zone
 predicted_probabilities <- predict_choice_probs(results, covariates)
 
-### THIS IS WHAT I NEED TO DO#####
-# OUTPUT FOLDER TO PROJECT
+# --- Load and process the zone closure scenario ---
+
 filename <- paste0(locoutput(project), project, "_closures.yaml")
 
-#this is how we make yaml:
-  yaml::write_yaml(rv$edit, filename)
+brookings <- readRDS("~/Documents/GitHub/FishSET/data/confidential/rds/closures/brookings.rds")
 
-## in output
-  closures.yaml 
-###################
-  
-  
-# --- Load and process the zone closure scenario ---
-# IMPORTANT: First need to design a closure scenario using FishSET::zone_closure()
-scenario_name <- "closure_1"
+yaml::write_yaml(brookings, filename)
 
-closure_filepath <- file.path(locoutput(project), 
-                              pull_output(project, type = 'zone', fun = 'closures'))
-if (!file.exists(closure_filepath)) {
-  stop('No policy scenario tables found. Run the zone_closure function first.')
-}
 closures <- yaml::read_yaml(closure_filepath)
 
-# Find the specific scenario by name above
-selected_closure <- Filter(function(x) x$scenario == scenario_name, closures)
+scenario_name <- "closure_2"
 
-if (length(selected_closure) == 0) {
-  stop(paste("Policy scenario '", policy.name, "' not found in closures file."))
-}
+closed_zones <- gsub("Zone_", "", closures$zone[closures$scenario == scenario_name])
 
-# Extract the zones to be closed for the first matching policy
-closed_zones <- gsub("Zone_", "", selected_closure[[1]]$zone)
+unique_zones <- unique(main_data$ZoneID)
 
+closed_zones <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
 # First item in list is redistributed probabilities for each trip
@@ -441,6 +422,11 @@ welfare_output <- calculate_welfare_change(results,
                                            beta_samples = 20)
 
 print(welfare_output)
+
+# calculate mean across iterations for each vessel, each trip - then we can get mean per vessel all time - look at differences in behavior type x welfare loss
+
+
+
 
 
 # SAVE RESULTS ------------------------------------------------------------------------------------
