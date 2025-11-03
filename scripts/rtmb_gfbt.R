@@ -125,9 +125,9 @@ predict_choice_probs <- function(model_fit, covariate_list) {
 #'                     names must match the column names of the covariate matrices.
 #'
 #' @return A list containing:
-#'         - `trip_probabilities_redist`: A matrix of the new choice probabilities for each trip 
+#'         - `trip_probabilities_redist`: A matrix of the ### choice probabilities for each trip 
 #'                                        and zone.
-#'         - `zone_probabilities_redist`: A data frame of the new average probabilities for 
+#'         - `zone_probabilities_redist`: A data frame of the ### average probabilities for 
 #'                                        each zone.
 predict_redistributed_probs <- function(model_fit, covariate_list, closed_zones) {
   betas <- model_fit$results$Estimate
@@ -253,9 +253,9 @@ calculate_welfare_change <- function(model_fit,
 #' @param id_col A character string specifying the name of the column that identifies
 #'               unique observations (e.g., "TRIPID"). This column's values will become the rows.
 #' @param names_from_col A character string specifying the name of the column whose unique
-#'                       values will become the new column names (e.g., "ZoneID").
+#'                       values will become the ### column names (e.g., "ZoneID").
 #' @param values_to_spread A character vector of column names whose values will be spread
-#'                         into the new wide matrices. A separate matrix will be created
+#'                         into the ### wide matrices. A separate matrix will be created
 #'                         for each column name provided.
 #'
 #' @return A named list of wide-format matrices. The names of the list elements correspond
@@ -290,7 +290,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "brookings"
+project <- "southwa"
 
 # DATA PREPARATION --------------------------------------------------------------------------------
 
@@ -365,6 +365,7 @@ catch <- model_matrices$expected_catch
 distance <- model_matrices$distance_from_haul
 
 # fuel cost matrix
+### need to fix this because distance is in MILES!!!
 price_per_km <- main_data$price_per_km
 fuel <- price_per_km * distance
 
@@ -390,27 +391,25 @@ predicted_probabilities <- predict_choice_probs(results, covariates)
 
 # --- Load and process the zone closure scenario ---
 
-filename <- paste0(locoutput(project), project, "_closures.yaml")
-
-brookings <- readRDS("~/Documents/GitHub/FishSET/data/confidential/rds/closures/brookings.rds")
-
-yaml::write_yaml(brookings, filename)
-
-closures <- yaml::read_yaml(closure_filepath)
-
 scenario_name <- "closure_2"
 
-closed_zones <- gsub("Zone_", "", closures$zone[closures$scenario == scenario_name])
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_2 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_2.rds")
+
+yaml::write_yaml(scenario_2, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
 
 unique_zones <- unique(main_data$ZoneID)
-
 closed_zones <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
 redistributed_probabilities <- predict_redistributed_probs(results, covariates, closed_zones)
-
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
@@ -421,139 +420,10 @@ welfare_output <- calculate_welfare_change(results,
                                            cost_variable_index = 2,
                                            beta_samples = 20)
 
-print(welfare_output)
-
-# calculate mean across iterations for each vessel, each trip - then we can get mean per vessel all time - look at differences in behavior type x welfare loss
-
-
-
-
-
 # SAVE RESULTS ------------------------------------------------------------------------------------
 
-# --- Save outputs to FishSET project ---
-# Create connection to db
-fishset_db <- DBI::dbConnect(RSQLite::SQLite(), locdatabase(project = project))
+redist_probs <- redistributed_probabilities[["trip_probabilities_redist"]]
+saveRDS(redist_probs, file=here::here("data", "confidential", "FishSETfolder", "southwa", "output", "redist_probs.rds"))
 
-
-# --- Model fit table ---
-LL <- results$fit$objective
-k <- length(results$fit$par)
-n <- dim(Y)[1]
-# Null model to calculate PseudoR2
-n_choices <- dim(Y)[2]  # Number of choices (zones)
-LL_null <- -n * log(n_choices)
-
-AIC <- round((-2 * LL) + (2 * k), 3)
-AICc <- round(AIC + (((2 * k) * (k + 1)) / (n - k - 1)), 3)
-BIC <- round((-2 * LL) + (k * log(n)), 3)
-PseudoR2 <- round(1 - (-LL / LL_null), 3)
-
-# Save dataframe
-mod.out <- data.frame(matrix(NA, nrow = 4, ncol = 1))
-mod.out[, 1] <- c(AIC, AICc, BIC, PseudoR2)
-rownames(mod.out) <- c("AIC", "AICc", "BIC", "PseudoR2")
-colnames(mod.out) <- mdf$mod.name
-
-# Table name
-mft_tab_nm <- paste0(project, "ModelFit") 
-
-# Check if the table exists, if it does we want to combind results
-if (table_exists(mft_tab_nm, project)) {
-  mft <- model_fit(project, CV = FALSE)
-  
-  # If model is in the table, replace old value
-  if (names(mod.out) %in% names(mft)){
-    # Get the name of the column to replace
-    col_to_replace <- names(mod.out)
-    # Remove the old column
-    mft <- mft[, !names(mft) %in% col_to_replace]
-  }
-  
-  DBI::dbWriteTable(fishset_db, mft_tab_nm, cbind(mft, mod.out), overwrite = TRUE)
-  
-} else {
-  # If not, create the table and save model fit
-  DBI::dbWriteTable(fishset_db, mft_tab_nm, mod.out)
-}
-
-# --- Model output table ---
-ModelOut <- list(
-  name = mdf$mod.name,
-  errorExplain = NULL, # Just filling in NULL value here when running RTMB  
-  OutLogit = data.frame(
-    estimate = results$results$Estimate,
-    std_error = results$results$Std_error,
-    t_value = results$results$Estimate/results$results$Std_error),
-  optoutput = list(
-    counts = results$fit$evaluations,
-    convergence = results$fit$convergence,
-    optim_message = NULL), # Just fill in NULL value here when running RTMB
-  seoutmat2 = results$results$Std_error,
-  MCM = list(
-    AIC = AIC,
-    AICc = AICc,
-    BIC = BIC,
-    PseudoR2 = PseudoR2),
-  H1 = unname(results$sdr$cov.fixed),
-  choice.table = data.frame(
-    choice = colnames(Y)[max.col(Y)]),
-  params = unname(results$fit$par),
-  modTime = 10 # Just filling in random time here - this isn't used for anything  
-)
-
-mot_tab_nm <- paste0(project, "ModelOut")  
-mot_exists <- table_exists(mot_tab_nm, project)
-
-if (mot_exists) {
-  mot <- model_out_view(project, CV = FALSE)
-  table_remove(mot_tab_nm, project)
-  mot_n <- vapply(mot, function(x) x$name, character(1)) 
-  if (mdf$mod.name %in% mot_n) {
-    #replace existing model
-    mot[[which(mot_n %in% mdf$mod.name)]] <- ModelOut
-    
-  } else {
-    # add new model
-    mot[[length(mot) + 1]] <- ModelOut
-  }
-  
-  mot_to_save <- mot
-  
-} else {
-  # new mot
-  mot_to_save <- list(ModelOut)
-}
-
-# Save ModelOut table to db
-raw_sql <- paste("INSERT INTO", mot_tab_nm, "VALUES (:data)")
-DBI::dbExecute(fishset_db, 
-               paste("CREATE TABLE IF NOT EXISTS", mot_tab_nm, "(data ModelOut)"))
-DBI::dbExecute(fishset_db, raw_sql, 
-               params = list(data = list(serialize(mot_to_save, NULL))))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+welfare_per_haul <- welfare_output[[2]]
+saveRDS(welfare_per_haul, file=here::here("data", "confidential", "FishSETfolder", "southwa", "output", "welfare_per_haul.rds"))

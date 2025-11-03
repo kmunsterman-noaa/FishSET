@@ -13,7 +13,7 @@ library(tidyverse)
 library(maps)
 library(readr)
 library(here)
-library(sf)
+library(southwa)
 library(rnaturalearth)
 library(adehabitatHR)
 library(mapview)
@@ -38,43 +38,43 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# brookings -----------------------------------------------------------------------
+# southwa -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "brookings"
+project <- "southwa"
 
 # LOAD DATA --------------------------------------------------------------------
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-brookings_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/BROOKINGS.rds"
+southwa_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/SOUTH AND CENTRAL WA COAST.rds"
 update_folderpath()
-load_maindata(brookings_data, project = "brookings", over_write = TRUE)
-brookingsMainDataTable <- table_view("brookingsMainDataTable", 
-                                  project = "brookings")
+load_maindata(southwa_data, project = "southwa", over_write = TRUE)
+southwaMainDataTable <- table_view("southwaMainDataTable", 
+                                  project = "southwa")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "brookings")
-brookings5x5SpatTable <- table_view("brookings5x5SpatTable",
-                                 project = "brookings")
+load_spatial(spat, name = "5x5", project = "southwa")
+southwa5x5SpatTable <- table_view("southwa5x5SpatTable",
+                                 project = "southwa")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "brookings")
-brookingsPortTable <- table_view("brookingsPortTable",
-                              project = "brookings")
+load_port(ports, port_name = "port_code", project = "southwa")
+southwaPortTable <- table_view("southwaPortTable",
+                              project = "southwa")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Scale catch data to tens
 
-brookingsMainDataTable <- create_var_num(dat = brookingsMainDataTable, 
+southwaMainDataTable <- create_var_num(dat = southwaMainDataTable, 
                                       project = project, 
                                       x = "tow_lb",
                                       y = 1000, 
@@ -83,26 +83,26 @@ brookingsMainDataTable <- create_var_num(dat = brookingsMainDataTable,
 
 # Assign zone ID for primary data
 
-brookingsMainDataTable <- assignment_column(dat = brookingsMainDataTable, 
+southwaMainDataTable <- assignment_column(dat = southwaMainDataTable, 
                                           project = project, 
-                                          spat = brookings5x5SpatTable,
+                                          spat = southwa5x5SpatTable,
                                           lon.dat = "centro_lon", 
                                           lat.dat = "centro_lat", 
                                           cat = "GRID5KM_ID", 
-                                          name = "new_ZoneID")
+                                          name = "southwa_ZoneID")
 
 # Plot zone summary
 
-zone_summary(dat = brookingsMainDataTable, 
-             spat = brookings5x5SpatTable, 
+zone_summary(dat = southwaMainDataTable, 
+             spat = southwa5x5SpatTable, 
              project = project, 
-             zone.dat = "new_ZoneID", 
+             zone.dat = "southwa_ZoneID", 
              zone.spat = "GRID5KM_ID", 
              output = "plot")
 
 # Create centroid
 
-create_centroid(spat = brookings5x5SpatTable, 
+create_centroid(spat = southwa5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -110,45 +110,45 @@ create_centroid(spat = brookings5x5SpatTable,
 
 # Create starting location
 
-brookingsMainDataTable <- create_startingloc(dat = brookingsMainDataTable, 
+southwaMainDataTable <- create_startingloc(dat = southwaMainDataTable, 
                                            project = project, 
-                                           spat = brookings5x5SpatTable, 
-                                           port = brookingsPortTable, 
+                                           spat = southwa5x5SpatTable, 
+                                           port = southwaPortTable, 
                                            port_name = "Port_Name",
                                            port_lon = "Port_Long", 
                                            port_lat = "Port_Lat", 
                                            trip_id = "trip_id", 
                                            haul_order = "haul_counter", 
                                            starting_port = "depart_port", 
-                                           zoneID = "new_ZoneID", 
+                                           zoneID = "southwa_ZoneID", 
                                            spatID = "GRID5KM_ID", 
                                            name = "start_loc")
 
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-brookingsMainDataTable <- na_filter(brookingsMainDataTable, 
+southwaMainDataTable <- na_filter(southwaMainDataTable, 
                                   project = project, 
                                   x = "tow_lb",
                                   remove = TRUE,
                                   over_write = TRUE)
 
 # Alternative choice
-create_alternative_choice(dat = brookingsMainDataTable, 
+create_alternative_choice(dat = southwaMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "start_loc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
-                          zoneID = "new_ZoneID", 
-                          zone.cent.name = "brookingsZoneCentroid")
+                          zoneID = "southwa_ZoneID", 
+                          zone.cent.name = "southwaZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = brookingsMainDataTable[z_ind, ], 
-                     spat = brookings5x5SpatTable, 
+zOut <- zone_summary(dat = southwaMainDataTable[z_ind, ], 
+                     spat = southwa5x5SpatTable, 
                      project = project, 
-                     zone.dat = "new_ZoneID",
+                     zone.dat = "southwa_ZoneID",
                      zone.spat = "GRID5KM_ID", 
                      output = "tab_plot")
 
@@ -157,7 +157,7 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = brookingsMainDataTable, 
+create_expectations(dat = southwaMainDataTable, 
                     project = project,
                     name = "exp1",
                     catch = "tow_lbs_thousands",
@@ -172,7 +172,7 @@ create_expectations(dat = brookingsMainDataTable,
 
 # Check model data
 
-check_model_data(brookingsMainDataTable, 
+check_model_data(southwaMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
@@ -189,9 +189,3 @@ make_model_design(project = project,
                   mod.name = "logit_c_mod1", 
                   expectcatchmodels = list('individual'))
 
-# Need model output table for zone_closure()
-zone_closure(project = "brookings",
-             spatdat = brookings5x5SpatTable,
-             cat = "GRID5KM_ID",
-             lon.spat = "centro_lon",
-             lat.spat = "centro_lat")
