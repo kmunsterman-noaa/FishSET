@@ -13,7 +13,7 @@ library(tidyverse)
 library(maps)
 library(readr)
 library(here)
-library(southwa)
+library(sf)
 library(rnaturalearth)
 library(adehabitatHR)
 library(mapview)
@@ -38,71 +38,71 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# southwa -----------------------------------------------------------------------
+# astoria -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "southwa"
+project <- "astoria"
 
 # LOAD DATA --------------------------------------------------------------------
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-southwa_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/SOUTH AND CENTRAL WA COAST.rds"
+astoria_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_port/ASTORIA.rds"
 update_folderpath()
-load_maindata(southwa_data, project = "southwa", over_write = TRUE)
-southwaMainDataTable <- table_view("southwaMainDataTable", 
-                                  project = "southwa")
+load_maindata(astoria_data, project = "astoria", over_write = TRUE)
+astoriaMainDataTable <- table_view("astoriaMainDataTable", 
+                                  project = "astoria")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "southwa")
-southwa5x5SpatTable <- table_view("southwa5x5SpatTable",
-                                 project = "southwa")
+load_spatial(spat, name = "5x5", project = "astoria")
+astoria5x5SpatTable <- table_view("astoria5x5SpatTable",
+                                 project = "astoria")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "southwa")
-southwaPortTable <- table_view("southwaPortTable",
-                              project = "southwa")
+load_port(ports, port_name = "port_code", project = "astoria")
+astoriaPortTable <- table_view("astoriaPortTable",
+                              project = "astoria")
 
 # DATA PREP --------------------------------------------------------------------
 
-# Scale catch data to tens
+# Scale revenue data to tens
 
-southwaMainDataTable <- create_var_num(dat = southwaMainDataTable, 
+astoriaMainDataTable <- create_var_num(dat = astoriaMainDataTable, 
                                       project = project, 
-                                      x = "tow_lb",
+                                      x = "tow_r",
                                       y = 1000, 
                                       method = 'division', 
-                                      name = 'tow_lbs_thousands')
+                                      name = 'tow_r_thousands')
 
 # Assign zone ID for primary data
 
-southwaMainDataTable <- assignment_column(dat = southwaMainDataTable, 
+astoriaMainDataTable <- assignment_column(dat = astoriaMainDataTable, 
                                           project = project, 
-                                          spat = southwa5x5SpatTable,
+                                          spat = astoria5x5SpatTable,
                                           lon.dat = "centro_lon", 
                                           lat.dat = "centro_lat", 
                                           cat = "GRID5KM_ID", 
-                                          name = "southwa_ZoneID")
+                                          name = "astoria_ZoneID")
 
 # Plot zone summary
 
-zone_summary(dat = southwaMainDataTable, 
-             spat = southwa5x5SpatTable, 
+zone_summary(dat = astoriaMainDataTable, 
+             spat = astoria5x5SpatTable, 
              project = project, 
-             zone.dat = "southwa_ZoneID", 
+             zone.dat = "astoria_ZoneID", 
              zone.spat = "GRID5KM_ID", 
              output = "plot")
 
 # Create centroid
 
-create_centroid(spat = southwa5x5SpatTable, 
+create_centroid(spat = astoria5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -110,45 +110,45 @@ create_centroid(spat = southwa5x5SpatTable,
 
 # Create starting location
 
-southwaMainDataTable <- create_startingloc(dat = southwaMainDataTable, 
+astoriaMainDataTable <- create_startingloc(dat = astoriaMainDataTable, 
                                            project = project, 
-                                           spat = southwa5x5SpatTable, 
-                                           port = southwaPortTable, 
+                                           spat = astoria5x5SpatTable, 
+                                           port = astoriaPortTable, 
                                            port_name = "Port_Name",
                                            port_lon = "Port_Long", 
                                            port_lat = "Port_Lat", 
                                            trip_id = "trip_id", 
                                            haul_order = "haul_counter", 
                                            starting_port = "depart_port", 
-                                           zoneID = "southwa_ZoneID", 
+                                           zoneID = "astoria_ZoneID", 
                                            spatID = "GRID5KM_ID", 
                                            name = "start_loc")
 
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-southwaMainDataTable <- na_filter(southwaMainDataTable, 
+astoriaMainDataTable <- na_filter(astoriaMainDataTable, 
                                   project = project, 
                                   x = "tow_lb",
                                   remove = TRUE,
                                   over_write = TRUE)
 
 # Alternative choice
-create_alternative_choice(dat = southwaMainDataTable, 
+create_alternative_choice(dat = astoriaMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "start_loc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
-                          zoneID = "southwa_ZoneID", 
-                          zone.cent.name = "southwaZoneCentroid")
+                          zoneID = "astoria_ZoneID", 
+                          zone.cent.name = "astoriaZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = southwaMainDataTable[z_ind, ], 
-                     spat = southwa5x5SpatTable, 
+zOut <- zone_summary(dat = astoriaMainDataTable[z_ind, ], 
+                     spat = astoria5x5SpatTable, 
                      project = project, 
-                     zone.dat = "southwa_ZoneID",
+                     zone.dat = "astoria_ZoneID",
                      zone.spat = "GRID5KM_ID", 
                      output = "tab_plot")
 
@@ -157,12 +157,12 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = southwaMainDataTable, 
+create_expectations(dat = astoriaMainDataTable, 
                     project = project,
                     name = "exp1",
-                    catch = "tow_lbs_thousands",
+                    catch = "tow_r_thousands",
                     temp_var = "date_time", 
-                    temp_window = 7, 
+                    temp_window = 10, 
                     day_lag = 1, 
                     year_lag = 0,
                     temporal = 'daily', 
@@ -172,7 +172,7 @@ create_expectations(dat = southwaMainDataTable,
 
 # Check model data
 
-check_model_data(southwaMainDataTable, 
+check_model_data(astoriaMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
