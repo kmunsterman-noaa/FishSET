@@ -10,6 +10,7 @@
 # LOAD LIBRARIES ----------------------------------------------------------------------------------
 library(FishSET)
 library(RTMB)
+library(tidyverse)
 
 # FUNCTIONS ---------------------------------------------------------------------------------------
 #' Fit a Conditional Logit Choice Model using RTMB
@@ -29,6 +30,7 @@ library(RTMB)
 #' @return A list containing the fitted model object (`fit`), the `sdreport` object (`sdr`), and a
 #'         dataframe of the formatted results (`results`) with estimates, standard errors, 
 #'         and p-values.
+#'        
 cond_logit_model <- function(response_matrix, covariate_list, start_params) {
   # Define the negative log-likelihood function dynamically
   nll_func <- function(par) {
@@ -290,7 +292,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "southwa"
+project <- "eureka"
 
 # DATA PREPARATION --------------------------------------------------------------------------------
 
@@ -302,7 +304,7 @@ mdf <- model_design_list(project)[[1]]
 # Filter data based on zones present in the alternative catch matrix
 unique_zones <- unique(altc_data$greaterNZ)
 main_data <- main_data %>%
-  filter(ZoneID %in% unique_zones)
+  filter(new_zoneID %in% unique_zones)
 
 # Create a long format dataframe for all possible choices
 # 'haul_id' in this example is the unique row/observation ID
@@ -314,12 +316,12 @@ df <- data.frame(
 
 # Identify the chosen zone for each haul
 df$zone_obs <- paste0(df$zones, df$obsID)
-selected <- paste0(main_data$ZoneID, main_data$haul_id)
+selected <- paste0(main_data$new_zoneID, main_data$haul_id)
 df$selected <- 0
 df$selected[which(df$zone_obs %in% selected)] <- 1
 df$zone_obs <- NULL
 
-# Reshape covariate data (distance, catch, and fuel) to long format and join
+# Reshape covariate data (distance, catch/revenue, and fuel) to long format and join
 
 # distance
 distance_long <- as.data.frame(mdf$distance) %>%
@@ -329,7 +331,7 @@ distance_long <- as.data.frame(mdf$distance) %>%
     names_to = "zones",
     values_to = "distance_from_haul")
 
-# expected catch
+# catch/expected revenue
 exp_catch_long <- as.data.frame(mdf$gridVaryingVariables$exp1) %>%
   mutate(haul_id = main_data$haul_id) %>%
   pivot_longer(
@@ -344,7 +346,7 @@ df_long <- df %>%
   left_join(exp_catch_long, by = c("zones" = "zones", "obsID" = "haul_id")) %>%
   rename(ZoneID = zones, haul_id = obsID) %>%
   dplyr::select(ZoneID, haul_id, selected, distance_from_haul, expected_catch) %>%
-  mutate(distance_from_haul = as.numeric(distance_from_haul))
+  mutate(distance_from_haul = (as.numeric(distance_from_haul))*1.60934)
 
 # Final data cleaning: remove zones with NA distance values
 zones_to_remove <- unique(df_long[which(is.na(df_long$distance_from_haul)),]$ZoneID)
@@ -364,16 +366,56 @@ Y <- model_matrices$selected
 catch <- model_matrices$expected_catch
 distance <- model_matrices$distance_from_haul
 
-# fuel cost matrix
-### need to fix this because distance is in MILES!!!
+# Add in additional covariates
+
+# fuel cost
 price_per_km <- main_data$price_per_km
 fuel <- price_per_km * distance
 
-# MODEL FITTING -----------------------------------------------------------------------------------
+# fishery fidelity x catch/revenue interaction
+
+# center fishery fidelity
+ff <- main_data %>%
+  dplyr::select(vessel_id, fishery_fidelity) %>%
+  group_by(vessel_id) %>%
+  unique()
+
+ff_mean <- mean(ff$fishery_fidelity)
+fishery_fidelity <- (main_data$fishery_fidelity)-ff_mean
+
+ff_catch <- fishery_fidelity*catch
+
+# vessel length x catch/revenue interaction
+
+# center vessel length
+vl <- main_data %>%
+  dplyr::select(vessel_id, vessel_length) %>%
+  group_by(vessel_id) %>%
+  unique()
+
+length_mean <- mean(vl$vessel_length)
+vessel_length <- (main_data$vessel_length)-length_mean
+
+length_catch <- vessel_length*catch
+
+# vessel length x fuel cost interaction
+
+# center vessel length
+vl <- main_data %>%
+  dplyr::select(vessel_id, vessel_length) %>%
+  group_by(vessel_id) %>%
+  unique()
+
+length_mean <- mean(vl$vessel_length)
+vessel_length <- (main_data$vessel_length)-length_mean
+
+length_cost <- vessel_length*fuel
+
+# MODEL FITTING ----------------------------------------------------------------
 
 # Define inputs for conditional logit model
-covariates <- list(catch = catch, fuel = fuel)
-starting_params <- list(beta_catch = 0, beta_fuel = 0)
+covariates <- list(catch = catch, fuel = fuel, ff_catch = ff_catch, length_catch = length_catch, length_cost = length_cost) #
+starting_params <- list(beta_catch = 0, beta_fuel = 0, beta_ff_catch = 0, beta_length_catch = 0, beta_length_cost = 0) #
 
 # Fit the conditional logit model
 results <- cond_logit_model(response_matrix = Y,
@@ -382,7 +424,65 @@ results <- cond_logit_model(response_matrix = Y,
 
 print(results)
 
-# POLICY SIMULATION AND WELFARE ANALYSIS ----------------------------------------------------------
+# SAVE MODEL OUTPUTS -----------------------------------------------------------
+
+# --- Model fit table ---
+LL <- results$fit$objective
+k <- length(results$fit$par)
+n <- dim(Y)[1]
+# Null model to calculate PseudoR2
+n_choices <- dim(Y)[2]  # Number of choices (zones)
+LL_null <- -n * log(n_choices)
+
+AIC <- round((-2 * LL) + (2 * k), 3)
+AICc <- round(AIC + (((2 * k) * (k + 1)) / (n - k - 1)), 3)
+BIC <- round((-2 * LL) + (k * log(n)), 3)
+PseudoR2 <- round(1 - (-LL / LL_null), 3)
+
+# Save dataframe
+mod.out <- data.frame(matrix(NA, nrow = 4, ncol = 1))
+mod.out[, 1] <- c(AIC, AICc, BIC, PseudoR2)
+rownames(mod.out) <- c("AIC", "AICc", "BIC", "PseudoR2")
+colnames(mod.out) <- mdf$mod.name
+
+# --- Model output table ---
+ModelOut <- list(
+  name = mdf$mod.name,
+  errorExplain = NULL, # Just filling in NULL value here when running RTMB  
+  OutLogit = data.frame(
+    estimate = results$results$Estimate,
+    std_error = results$results$Std_error,
+    t_value = results$results$Estimate/results$results$Std_error),
+  optoutput = list(
+    counts = results$fit$evaluations,
+    convergence = results$fit$convergence,
+    optim_message = NULL), # Just fill in NULL value here when running RTMB
+  seoutmat2 = results$results$Std_error,
+  MCM = list(
+    AIC = AIC,
+    AICc = AICc,
+    BIC = BIC,
+    PseudoR2 = PseudoR2),
+  H1 = unname(results$sdr$cov.fixed),
+  choice.table = data.frame(
+    choice = colnames(Y)[max.col(Y)]),
+  params = unname(results$fit$par),
+  modTime = 10 # Just filling in random time here - this isn't used for anything  
+)
+
+# Save ModelOut table to outputs folder
+
+MCM <- ModelOut[["MCM"]]
+write.csv(MCM, 
+          file = here::here("data", "confidential", "FishSETfolder", "eureka", "output", "MCM_mod4.csv"),
+          row.names = FALSE)
+
+params <- results[["results"]]
+write.csv(params, 
+          file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "params_mod4.csv"))
+
+
+# POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
 # --- Predict baseline probabilities ---
 # First item in list is predicted probabilities for each trip
@@ -403,7 +503,91 @@ closures <- yaml::read_yaml(filename)
 
 closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
 
-unique_zones <- unique(main_data$ZoneID)
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+redistributed_probabilities <- predict_redistributed_probs(results, covariates, closed_zones)
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+welfare_output <- calculate_welfare_change(results, 
+                                           covariates, 
+                                           closed_zones, 
+                                           cost_variable_index = 1,
+                                           beta_samples = 20)
+
+# SAVE RESULTS -----------------------------------------------------------------
+
+redist_probs <- redistributed_probabilities[["trip_probabilities_redist"]]
+saveRDS(redist_probs, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs.rds"))
+
+welfare_per_haul <- welfare_output[[2]]
+saveRDS(welfare_per_haul, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "welfare_per_haul_scen2.rds"))
+
+# SCENARIO 1
+
+scenario_name <- "closure_1"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_1 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_1.rds")
+
+yaml::write_yaml(scenario_1, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+redistributed_probabilities <- predict_redistributed_probs(results, covariates, closed_zones)
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+welfare_output <- calculate_welfare_change(results, 
+                                           covariates, 
+                                           closed_zones, 
+                                           cost_variable_index = 1,
+                                           beta_samples = 20)
+
+# SAVE RESULTS -----------------------------------------------------------------
+
+redist_probs <- redistributed_probabilities[["trip_probabilities_redist"]]
+saveRDS(redist_probs, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs.rds"))
+
+welfare_per_haul <- welfare_output[[2]]
+saveRDS(welfare_per_haul, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "welfare_per_haul_scen1.rds"))
+
+# TESTING WELFARE VALUES -------------------------------------------------------
+
+zones <- zOut$table
+
+scenario_3 <- zones %>%
+  filter(n > 30) %>% #30 (38), 8 (same number of zones as closure), 1 (153 closed zones)
+  rename(GRID5KM_ID = new_zoneID) %>%
+  dplyr::select(-n) %>%
+  mutate(scenario = "closure_3")
+ 
+scenario_name <- "closure_3"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+yaml::write_yaml(scenario_3, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
 closed_zones <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
@@ -420,10 +604,11 @@ welfare_output <- calculate_welfare_change(results,
                                            cost_variable_index = 2,
                                            beta_samples = 20)
 
-# SAVE RESULTS ------------------------------------------------------------------------------------
+#####
 
-redist_probs <- redistributed_probabilities[["trip_probabilities_redist"]]
-saveRDS(redist_probs, file=here::here("data", "confidential", "FishSETfolder", "southwa", "output", "redist_probs.rds"))
+mean_rev <- main_data %>%
+  summarise(mean_rev_per_haul = mean(tow_r), sd_rev = sd(tow_r))
 
-welfare_per_haul <- welfare_output[[2]]
-saveRDS(welfare_per_haul, file=here::here("data", "confidential", "FishSETfolder", "southwa", "output", "welfare_per_haul.rds"))
+mean_fuel <- mean(fuel)
+sd_fuel <- sd(fuel)
+

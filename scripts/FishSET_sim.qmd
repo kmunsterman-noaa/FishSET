@@ -1,0 +1,411 @@
+---
+title: "FishSET Simulation"
+author: "Paul Carvalho"
+format: pdf
+editor: visual
+---
+
+## FishSET Simulation
+
+This is a simulated example of FishSET to review and understand modeling principles. We can also use this simulated dataset to test modeling assumptions.
+
+## 1. Setup and Parameters
+
+```{r}
+#| label: setup
+#| message: false
+#| warning: false
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+library(patchwork)
+library(RTMB)
+
+set.seed(42)
+```
+
+### True Model Parameters
+
+These are the underlying "true" preferences to simulate.
+
+Only beta values for port B and C are included because these coefficients are relative to port A. Including port A would result in an infinite number of solutions and the optimization process would fail. *The core principle here is that only differences in utility matter*.
+
+```{r}
+#| label: parameters
+
+# True coefficients
+beta_revenue <- 0.0001
+beta_fuel_cost <- -0.005
+beta_port_B <- 0.3  # Preference for port B (relative to A)
+beta_port_C <- -0.1 # Preference for port C (relative to A)
+
+# Scenario parameters
+n_trips <- 500       # Number of fishing trips
+n_zones <- 6         # Number of alternative fishing zones
+n_ports <- 3         # Number of departure/landing ports
+port_names <- c("A", "B", "C")
+fuel_cost_per_km <- 2.5 # Cost per km
+```
+
+## 2. Simulating the Data
+
+### Fixed Data (Zones and Distances)
+
+```{r}
+#| label: fixed-data
+
+# Create a data frame for zones
+zones <- data.frame(
+  zone_id = 1:n_zones,
+  landing_port = rep(port_names, 2), # sample(port_names, n_zones, replace = TRUE),
+  base_catch_kg = runif(n_zones, 500, 2000),
+  base_price_per_kg = runif(n_zones, 10, 30)
+)
+
+# Create a distance matrix (PORT-to-ZONE)
+port_dist_matrix <- matrix(
+  runif(n_ports * n_zones, 50, 400),
+  nrow = n_ports,
+  ncol = n_zones,
+  dimnames = list(port_names, 1:n_zones)
+)
+
+# Create a distance matrix (ZONE-to-ZONE)
+zone_dist_matrix_raw <- matrix(
+  runif(n_zones * n_zones, 20, 200),
+  nrow = n_zones,
+  ncol = n_zones,
+  dimnames = list(1:n_zones, 1:n_zones)
+)
+
+# Make symmetric (dist A->B = dist B->A)
+zone_dist_matrix <- (zone_dist_matrix_raw + t(zone_dist_matrix_raw)) / 2
+
+# Set diagonal to 0 (dist A->A = 0)
+diag(zone_dist_matrix) <- 0
+```
+
+### Trip and Haul Data
+
+```{r}
+#| label: create-trips-hauls
+
+# Create n_trips, each with a departure port
+trips <- data.frame(
+  trip_id = 1:n_trips,
+  departure_port = sample(port_names, n_trips, replace = TRUE)
+)
+
+# Create hauls: each trip gets 2 to 6 hauls
+hauls_per_trip <- sample(2:6, n_trips, replace = TRUE)
+hauls <- trips[rep(1:n_trips, times = hauls_per_trip), ]
+
+# Create a unique haul_id and sequence number
+hauls$haul_id <- 1:nrow(hauls)
+hauls <- hauls %>%
+  group_by(trip_id) %>%
+  mutate(haul_num_in_trip = row_number()) %>%
+  ungroup()
+
+# Show the first few rows of the hauls data
+cat("Total choice situations (hauls):", nrow(hauls), "\n")
+head(hauls, 8)
+```
+
+### Sequential Simulation of Choices
+
+This is the core simulation logic. We loop through each trip and each haul *in order*, calculating dynamic distances and simulating choices one by one.
+
+```{r}
+#| label: sequential-simulation
+#| echo: False
+
+# Initialize lists to store results
+all_choices_long_list <- list() # Store the full long-format data
+all_chosen_hauls_list <- list() # Store only the chosen rows
+
+# Get vector of unique trip IDs
+unique_trips <- unique(hauls$trip_id)
+
+# Loop over each TRIP
+for (i in seq_along(unique_trips)) {
+  
+  current_trip_id <- unique_trips[i]
+  
+  # Get all hauls for this trip, in order
+  hauls_in_trip <- hauls %>% 
+    filter(trip_id == current_trip_id) %>%
+    arrange(haul_num_in_trip)
+  
+  departure_port <- hauls_in_trip$departure_port[1]
+  previous_chosen_zone <- NA # Reset for each new trip
+  
+  # Loop over each HAUL within the trip
+  for (h in 1:nrow(hauls_in_trip)) {
+    
+    current_haul_id <- hauls_in_trip$haul_id[h]
+    current_haul_num <- hauls_in_trip$haul_num_in_trip[h]
+    
+    # Create the choice set for this haul (one row per zone)
+    choice_set_df <- zones %>%
+      mutate(haul_id = current_haul_id)
+    
+    # Calculate Dynamic Distance
+    if (current_haul_num == 1) {
+      # Haul 1: Distance is from Departure Port
+      choice_set_df$distance <- port_dist_matrix[departure_port, ]
+    } else {
+      # Haul > 1: Distance is from previous chosen zone
+      choice_set_df$distance <- zone_dist_matrix[previous_chosen_zone, ]
+    }
+    
+    # Calculate Covariates (add noise to the data)
+    choice_set_df <- choice_set_df %>%
+      mutate(
+        catch = base_catch_kg + rnorm(n(), 0, 100),
+        price = base_price_per_kg + rnorm(n(), 0, 2),
+        catch = pmax(0, catch),
+        price = pmax(0, price),
+        
+        revenue = catch * price,
+        fuel_cost = distance * fuel_cost_per_km,
+        
+        port_B = ifelse(landing_port == "B", 1, 0),
+        port_C = ifelse(landing_port == "C", 1, 0)
+      )
+    
+    # Calculate Observed Utility (V)
+    choice_set_df$V <- (
+      beta_revenue * choice_set_df$revenue +
+      beta_fuel_cost * choice_set_df$fuel_cost +
+      beta_port_B * choice_set_df$port_B +
+      beta_port_C * choice_set_df$port_C
+    )
+    
+    # Simulate Choice
+    # softmax function to calculate probabilities
+    choice_set_df$prob <- exp(choice_set_df$V) / sum(exp(choice_set_df$V))
+    
+    # Sample 1 zone per haul, weighted by its probability
+    chosen_row <- choice_set_df %>%
+      sample_n(1, weight = prob)
+    
+    previous_chosen_zone <- chosen_row$zone_id # Update for next haul
+    
+    # Store Results
+    # Add 'choice' column (0/1)
+    choice_set_df$choice <- ifelse(choice_set_df$zone_id == previous_chosen_zone, 1, 0)
+    
+    all_choices_long_list[[length(all_choices_long_list) + 1]] <- choice_set_df
+    all_chosen_hauls_list[[length(all_chosen_hauls_list) + 1]] <- chosen_row
+  }
+}
+
+# Bind all data frames
+df_long <- bind_rows(all_choices_long_list)
+df_chosen <- bind_rows(all_chosen_hauls_list)
+
+cat("--- Final Long Data Structure (first 12 rows) ---\n")
+print(head(df_long, 12))
+
+```
+
+### Visualize Hauls Per Zone
+
+```{r}
+#| label: viz-choices
+
+# This is more of a diagnostic plot - if there are zero hauls for a landing port the model
+# will run into issues converging. We would see this by a warning in the optimization function
+# that the Hessian was not positive definite.
+ggplot(df_chosen, aes(x = as.factor(zone_id), fill = landing_port)) +
+  geom_bar(position = "dodge") +
+  labs(title = "Distribution of Chosen Zones",
+       subtitle = "Faceted by Zone's Landing Port",
+       x = "Chosen Zone ID",
+       y = "Number of Hauls",
+       fill = "Landing Port") +
+  theme_minimal() +
+  facet_wrap(~landing_port, scales = "free_x")
+
+cat("Note: Port B was given a positive preference (beta=0.8)\n")
+cat("Note: Port C was given a negative preference (beta=-0.4)\n")
+cat("Port A was the reference (beta=0.0)\n")
+```
+
+## 3. Reformat Data for R-based NLL Function
+
+```{r}
+#| label: reformat-data
+
+# Helper function to pivot and convert to matrix
+pivot_to_matrix <- function(data, id_col, names_from, values_from) {
+  df_wide <- data %>%
+    select(all_of(c(id_col, names_from, values_from))) %>%
+    pivot_wider(id_cols = all_of(id_col), 
+                names_from = all_of(names_from), 
+                values_from = all_of(values_from))
+  
+  # Remove the ID column and convert to matrix
+  as.matrix(df_wide[, -1])
+}
+
+# Create the wide-format matrices
+# The "choice situation" is haul_id
+Y_mat <- pivot_to_matrix(df_long, "haul_id", "zone_id", "choice")
+revenue_mat <- pivot_to_matrix(df_long, "haul_id", "zone_id", "revenue")
+fuel_cost_mat <- pivot_to_matrix(df_long, "haul_id", "zone_id", "fuel_cost")
+port_B_mat <- pivot_to_matrix(df_long, "haul_id", "zone_id", "port_B")
+port_C_mat <- pivot_to_matrix(df_long, "haul_id", "zone_id", "port_C")
+
+# Scale revenue and fuel_cost
+rev_scale_factor <- 10000
+cost_scale_factor <- 1000
+revenue_mat <- revenue_mat/rev_scale_factor
+fuel_cost_mat <- fuel_cost_mat/cost_scale_factor
+
+cat("Dimensions of Y matrix (Hauls x Zones):", dim(Y_mat), "\n")
+cat("Dimensions of revenue matrix (Hauls x Zones):", dim(revenue_mat), "\n")
+```
+
+## 4. Fitting the Model using R NLL Function
+
+### Define NLL Function and Run Model
+
+```{r}
+#| label: run-model-r
+
+# Specify negative log-likelihood function (conditional logit model)
+nll_func <- function(par) {
+  # Get parameters
+  beta_revenue <- par$beta_revenue
+  beta_fuel_cost <- par$beta_fuel_cost
+  beta_port_B <- par$beta_port_B
+  beta_port_C <- par$beta_port_C
+
+  # Calculate utility for all choices
+  # These are our data matrices passed in via 'data_list'
+  utility <- (
+    beta_revenue * revenue_mat +
+    beta_fuel_cost * fuel_cost_mat +
+    beta_port_B * port_B_mat +
+    beta_port_C * port_C_mat
+  )
+
+  # Calculate the log-likelihood
+  # This calculates the utility of ONLY the chosen alternative for each haul
+  # Y is (haul x zone) matrix of 0/1, utility is (haul x zone) matrix of V
+  utility_of_chosen <- rowSums(Y_mat * utility)
+
+  # This is the log-sum-exp term, the log of denominator in the logit formula
+  log_sum_exp_utility <- log(rowSums(exp(utility)))
+
+  # The total negative log-likelihood is the sum over all hauls
+  nll <- -sum(utility_of_chosen - log_sum_exp_utility)
+
+  return(nll)
+}
+
+# List of data to be used by the model function
+# These are the wide matrices
+data_list <- list(
+  Y_mat = Y_mat,
+  revenue_mat = revenue_mat,
+  fuel_cost_mat = fuel_cost_mat,
+  port_B_mat = port_B_mat,
+  port_C_mat = port_C_mat
+)
+
+# List of parameters with their starting values
+params <- list(
+  beta_revenue = 0,
+  beta_fuel_cost = 0,
+  beta_port_B = 0,
+  beta_port_C = 0
+)
+
+# Compile TMB object
+# Translates R model to C++ representation, automatically differentiates
+obj <- RTMB::MakeADFun(
+  func = nll_func,
+  data = data_list,
+  parameters = params
+)
+
+# Optimize
+fit <- nlminb(
+  start = obj$par,
+  objective = obj$fn,
+  gradient = obj$gr
+)
+
+# Get parameter estimates and standard errors
+sdr <- sdreport(obj)
+```
+
+The model does a pretty good job at recovering the 'true' beta values. The scaled 'true' values for revenue and fuel cost are 1.0 (0.0001 \* 10000) and -5 (-0.005 \* 1000), respectively. The model estimated 0.93 and -4.78. The 'true' preference for landing port B (relative to port A) is 0.3 and the model estimate was 0.29. Although the preference for port C was off, the model estimated the correct sign and was close enough given the simulated noise in the data.
+
+## 5. Welfare Analysis
+
+The 'welfare' of a fisher for a given haul is represented by their expected utility given the set of choices available to them.
+
+The 'log-sum' term in the denominator of the logit probability equation is a measure of this expected utility because the log-sum value is the expected maximum utility from the set of choices. Thus, the log-sum is a single value that captures the *entire value* of having a particular set of options. See section 9.3.1 in the FishSET User Manual for equation.
+
+Since we have revenue in this model, the marginal utility of income (MUI) is beta_revenue. The MUI converts welfare into \$ because the units for the difference in the log-sum is in 'utility' and beta_revenue is in units of 'utility/\$'.
+
+If we only have a covariate for cost (not revenue), we can use the negative of the estimated cost coefficient as the MUI. This assumes that a dollar saved in cost is equal to a dollar increase in income (Train section on consumer surplus suggests that this is a safe assumption).
+
+ANOTHER OPTION: Since we have both revenue and cost, we could use a bounding approach for calculating welfare. First find welfare loss using revenue as the MUI. Then calculate loss using the cost variable as the MUI. This would give us an estimated range of loss.
+
+```{r}
+#| label: welfare-analysis
+
+# Estimated scaled params
+coeff_scaled <- sdr$par.fixed
+
+# Calculate unscaled values
+beta_rev_unscaled <- coeff_scaled["beta_revenue"] / rev_scale_factor
+
+# Calculate before and after utility (not the covartiate matrices are scaled)
+utility_before_scaled <- (
+  (coeff_scaled["beta_revenue"] * revenue_mat) +
+  (coeff_scaled["beta_fuel_cost"] * fuel_cost_mat) +
+  (coeff_scaled["beta_port_B"] * port_B_mat) +
+  (coeff_scaled["beta_port_C"] * port_C_mat))
+
+# Log-sum before (by row)
+logsum_before <- apply(utility_before_scaled, 
+                       1, 
+                       function(x) log(sum(exp(x))))
+
+# Zones to close
+zones_to_close <- c(1, 2)
+
+# Create copy of utility matrix
+utility_after_scaled <- utility_before_scaled
+
+# Set utility of closed zones to -Inf because exp(-Inf) = 0
+utility_after_scaled[, zones_to_close] <- -Inf
+
+# Log-sum after (by row)
+logsum_after <- apply(utility_after_scaled, 
+                      1, 
+                      function(x) log(sum(exp(x))))
+
+# Change in utility
+delta_utility <- logsum_after - logsum_before
+
+# Convert to dollars (utility / (utility/$))
+welfare_change_per_haul <- delta_utility/beta_revenue
+
+# Summary
+total_loss <- sum(welfare_change_per_haul)
+avg_loss <- mean(welfare_change_per_haul)
+n_hauls_affected <- sum(welfare_change_per_haul < 0)
+
+cat("Total loss over all hauls: $", -(total_loss), "\n")
+cat("Average loss per haul: $", -(avg_loss), "\n")
+```
+
+The average loss is \$10,794 dollars, which means that fishers would have to be compensated that amount to return them to their original welfare level prior to closing fishing zones.
