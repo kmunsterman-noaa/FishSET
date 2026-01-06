@@ -54,33 +54,33 @@ scwa_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/SOUT
 update_folderpath()
 load_maindata(scwa_data, project = "scwa", over_write = TRUE)
 scwaMainDataTable <- table_view("scwaMainDataTable", 
-                                  project = "scwa")
+                                project = "scwa")
 
 #   Spatial Data
 #   5x5 km grid
 
 load_spatial(spat, name = "5x5", project = "scwa")
 scwa5x5SpatTable <- table_view("scwa5x5SpatTable",
-                                 project = "scwa")
+                               project = "scwa")
 
 #   Port Data
 #   Port coordinates
 
 load_port(ports, port_name = "port_code", project = "scwa")
 scwaPortTable <- table_view("scwaPortTable",
-                              project = "scwa")
+                            project = "scwa")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Assign zone ID for primary data
 
 scwaMainDataTable <- assignment_column(dat = scwaMainDataTable, 
-                                          project = project, 
-                                          spat = scwa5x5SpatTable,
-                                          lon.dat = "centro_lon", 
-                                          lat.dat = "centro_lat", 
-                                          cat = "GRID5KM_ID", 
-                                          name = "new_zoneID")
+                                       project = project, 
+                                       spat = scwa5x5SpatTable,
+                                       lon.dat = "centro_lon", 
+                                       lat.dat = "centro_lat", 
+                                       cat = "GRID5KM_ID", 
+                                       name = "new_zoneID")
 
 # Plot zone summary
 
@@ -102,36 +102,36 @@ create_centroid(spat = scwa5x5SpatTable,
 # Starting location
 
 scwaMainDataTable <- change_class(dat = scwaMainDataTable, 
-                                     project = project, 
-                                     x = "startingloc", 
-                                     new_class = 'character', 
-                                     save = TRUE)
+                                  project = project, 
+                                  x = "startingloc", 
+                                  new_class = 'character', 
+                                  save = TRUE)
 
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
 scwaMainDataTable <- nan_filter(scwaMainDataTable, 
-                                  project = project, 
-                                  remove = TRUE,
-                                  over_write = TRUE)
+                                project = project, 
+                                remove = TRUE,
+                                over_write = TRUE)
 
 scwaMainDataTable <- na_filter(scwaMainDataTable, 
-                                   project = project,
-                                    x = "tow_r",
-                                   remove = TRUE,
-                                    over_write = TRUE)
+                               project = project,
+                               x = "tow_r",
+                               remove = TRUE,
+                               over_write = TRUE)
 
 scwaMainDataTable <- na_filter(scwaMainDataTable, 
-                                  project = project,
-                                  x = "tow_lb",
-                                  remove = TRUE,
-                                  over_write = TRUE)
+                               project = project,
+                               x = "tow_lb",
+                               remove = TRUE,
+                               over_write = TRUE)
 
 scwaMainDataTable <- na_filter(scwaMainDataTable, 
-                                   project = project,
-                                   x = "port_zoneID",
-                                   remove = TRUE,
-                                   over_write = TRUE)
+                               project = project,
+                               x = "port_zoneID",
+                               remove = TRUE,
+                               over_write = TRUE)
 
 # Alternative choice
 create_alternative_choice(dat = scwaMainDataTable, 
@@ -188,4 +188,3 @@ make_model_design(project = project,
                   startloc = "startingloc",
                   mod.name = "logit_c_mod1", 
                   expectcatchmodels = list('individual'))
-

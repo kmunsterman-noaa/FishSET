@@ -210,7 +210,7 @@ calculate_welfare_change <- function(model_fit,
       # CASE: Revenue (Positive Coefficient)
       alpha_drawn <- betas_drawn[cost_variable_index]
     }
-
+    
     # Calculate utility
     utility_components <- mapply(function(cov, beta) cov * beta, 
                                  covariate_list, betas_drawn, SIMPLIFY = FALSE)
@@ -309,7 +309,7 @@ main_data <- main_data %>%
 df <- data.frame(
   zones = rep(unique_zones, length(main_data$haul_id)),
   obsID = rep(main_data$haul_id, each = length(unique_zones))
-  )
+)
 
 # Identify the chosen zone for each haul
 df$zone_obs <- paste0(df$zones, df$obsID)
@@ -427,11 +427,11 @@ saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfold
 
 ## Revenue
 welfare_output_rev_scen1 <- calculate_welfare_change(results, 
-                                           covariates, 
-                                           closed_zones_scen1, 
-                                           cost_variable_index = 1,
-                                           is_cost_variable = FALSE,
-                                           beta_samples = 20)
+                                                     covariates, 
+                                                     closed_zones_scen1, 
+                                                     cost_variable_index = 1,
+                                                     is_cost_variable = FALSE,
+                                                     beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
 welfare_per_haul <- welfare_output_rev_scen1[[2]]
@@ -451,11 +451,11 @@ welfare_per_trip_rev_scen1
 ## Fuel Cost
 
 welfare_output_fuel_scen1 <- calculate_welfare_change(results, 
-                                               covariates, 
-                                               closed_zones_scen1, 
-                                               cost_variable_index = 2,
-                                               is_cost_variable = TRUE,
-                                               beta_samples = 20)
+                                                      covariates, 
+                                                      closed_zones_scen1, 
+                                                      cost_variable_index = 2,
+                                                      is_cost_variable = TRUE,
+                                                      beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
 welfare_per_haul <- welfare_output_fuel_scen1[[2]]
@@ -504,11 +504,11 @@ saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfold
 
 ## Revenue
 welfare_output_rev_scen2 <- calculate_welfare_change(results, 
-                                               covariates, 
-                                               closed_zones_scen2, 
-                                               cost_variable_index = 1,
-                                               is_cost_variable = FALSE,
-                                               beta_samples = 20)
+                                                     covariates, 
+                                                     closed_zones_scen2, 
+                                                     cost_variable_index = 1,
+                                                     is_cost_variable = FALSE,
+                                                     beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
 welfare_per_haul <- welfare_output_rev_scen2[[2]]
@@ -528,11 +528,11 @@ welfare_per_trip_rev_scen2
 ## Fuel Cost
 
 welfare_output_fuel_scen2 <- calculate_welfare_change(results, 
-                                                covariates, 
-                                                closed_zones_scen2, 
-                                                cost_variable_index = 2,
-                                                is_cost_variable = TRUE,
-                                                beta_samples = 20)
+                                                      covariates, 
+                                                      closed_zones_scen2, 
+                                                      cost_variable_index = 2,
+                                                      is_cost_variable = TRUE,
+                                                      beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
 welfare_per_haul <- welfare_output_fuel_scen2[[2]]
