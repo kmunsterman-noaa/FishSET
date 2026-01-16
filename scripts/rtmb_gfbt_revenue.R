@@ -369,7 +369,12 @@ distance <- model_matrices$distance_from_haul
 price_per_km <- main_data$price_per_km
 fuel <- price_per_km * distance
 
+# profit
+profit <- revenue - fuel
+
 # MODEL FITTING ----------------------------------------------------------------
+
+# Revenue and Cost
 
 # Define inputs for conditional logit model
 covariates <- list(revenue = revenue, fuel = fuel)
@@ -382,16 +387,29 @@ results <- cond_logit_model(response_matrix = Y,
 
 print(results)
 
+# Profit
+
+# Define inputs for conditional logit model
+covariates <- list(profit = profit)
+starting_params <- list(beta_profit = 0)
+
+# Fit the conditional logit model
+results_profit <- cond_logit_model(response_matrix = Y,
+                            covariate_list = covariates,
+                            start_params = starting_params)
+
+print(results_profit)
+
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
 # --- Predict baseline probabilities ---
 # First item in list is predicted probabilities for each trip
 # Second item in list is predicted probabilities for each zone
-predicted_probabilities <- predict_choice_probs(results, covariates)
+predicted_probabilities <- predict_choice_probs(results_profit, covariates)
 
 # Save data
 predicted_probs_zones <- predicted_probabilities[[2]]
-saveRDS(predicted_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "scwa", "output", "predicted_probs_zones.rds"))
+saveRDS(predicted_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "predicted_probs_zones.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -415,18 +433,18 @@ closed_zones_scen1 <- intersect(closed_zones, unique_zones)
 # --- Predict redistributed probabilities under the closure ---
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
-redistributed_probabilities <- predict_redistributed_probs(results, covariates, closed_zones_scen1)
+redistributed_probabilities <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen1)
 
 # Save data
 redist_probs_zones <- redistributed_probabilities[[2]]
-saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "scwa", "output", "redist_probs_zones_scen1.rds"))
+saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs_zones_scen1.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
 ## Revenue
-welfare_output_rev_scen1 <- calculate_welfare_change(results, 
+welfare_output_scen1 <- calculate_welfare_change(results_profit, 
                                                      covariates, 
                                                      closed_zones_scen1, 
                                                      cost_variable_index = 1,
@@ -434,43 +452,19 @@ welfare_output_rev_scen1 <- calculate_welfare_change(results,
                                                      beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_rev_scen1[[2]]
+welfare_per_haul <- welfare_output_scen1[[2]]
 mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
 
-welfare_per_trip_rev_scen1 <- main_data %>%
-  dplyr::select(ftid, haul_id) %>%
+welfare_per_trip_scen1 <- main_data %>%
+  dplyr::select(trip_id, haul_id) %>%
   mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
-  group_by(ftid) %>%
+  group_by(trip_id) %>%
   summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
   mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
   summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
 
 # positive values indicates LOSS
-welfare_per_trip_rev_scen1
-
-## Fuel Cost
-
-welfare_output_fuel_scen1 <- calculate_welfare_change(results, 
-                                                      covariates, 
-                                                      closed_zones_scen1, 
-                                                      cost_variable_index = 2,
-                                                      is_cost_variable = TRUE,
-                                                      beta_samples = 20)
-
-# Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_fuel_scen1[[2]]
-mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
-
-welfare_per_trip_fuel_scen1 <- main_data %>%
-  dplyr::select(ftid, haul_id) %>%
-  mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
-  group_by(ftid) %>%
-  summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
-  mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
-  summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
-
-# positive values indicates LOSS
-welfare_per_trip_fuel_scen1
+welfare_per_trip_scen1
 
 ## SCENARIO 2
 
@@ -492,18 +486,18 @@ closed_zones_scen2 <- intersect(closed_zones, unique_zones)
 # --- Predict redistributed probabilities under the closure ---
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
-redistributed_probabilities <- predict_redistributed_probs(results, covariates, closed_zones_scen2)
+redistributed_probabilities <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen2)
 
 # Save data
 redist_probs_zones <- redistributed_probabilities[[2]]
-saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "scwa", "output", "redist_probs_zones_scen2.rds"))
+saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs_zones_scen2.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
 ## Revenue
-welfare_output_rev_scen2 <- calculate_welfare_change(results, 
+welfare_output_scen2 <- calculate_welfare_change(results_profit, 
                                                      covariates, 
                                                      closed_zones_scen2, 
                                                      cost_variable_index = 1,
@@ -511,40 +505,16 @@ welfare_output_rev_scen2 <- calculate_welfare_change(results,
                                                      beta_samples = 20)
 
 # Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_rev_scen2[[2]]
+welfare_per_haul <- welfare_output_scen2[[2]]
 mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
 
-welfare_per_trip_rev_scen2 <- main_data %>%
-  dplyr::select(ftid, haul_id) %>%
+welfare_per_trip_scen2 <- main_data %>%
+  dplyr::select(trip_id, haul_id) %>%
   mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
-  group_by(ftid) %>%
+  group_by(trip_id) %>%
   summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
   mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
   summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
 
 # positive values indicates LOSS
-welfare_per_trip_rev_scen2 
-
-## Fuel Cost
-
-welfare_output_fuel_scen2 <- calculate_welfare_change(results, 
-                                                      covariates, 
-                                                      closed_zones_scen2, 
-                                                      cost_variable_index = 2,
-                                                      is_cost_variable = TRUE,
-                                                      beta_samples = 20)
-
-# Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_fuel_scen2[[2]]
-mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
-
-welfare_per_trip_fuel_scen2 <- main_data %>%
-  dplyr::select(ftid, haul_id) %>%
-  mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
-  group_by(ftid) %>%
-  summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
-  mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
-  summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
-
-# positive values indicates LOSS
-welfare_per_trip_fuel_scen2
+welfare_per_trip_scen2 
