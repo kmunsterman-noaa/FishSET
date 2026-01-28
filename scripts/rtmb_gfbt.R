@@ -277,7 +277,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
       as.matrix()
   })
   
-  # Name the list elements for easy access later (e.g., list$selected, list$expected_catch)
+  # Name the list elements for easy aXXXXess later (e.g., list$selected, list$expected_catch)
   names(wide_matrices) <- values_to_spread
   
   return(wide_matrices)
@@ -288,7 +288,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "scwa"
+project <- "XXXX"
 update_folderpath()
 
 # DATA PREPARATION --------------------------------------------------------------------------------
@@ -374,7 +374,7 @@ profit <- revenue - fuel
 
 # MODEL FITTING ----------------------------------------------------------------
 
-# Revenue and Cost
+# Revenue and Cost #
 
 # Define inputs for conditional logit model
 covariates <- list(revenue = revenue, fuel = fuel)
@@ -387,7 +387,7 @@ results <- cond_logit_model(response_matrix = Y,
 
 print(results)
 
-# Profit
+# Profit #
 
 # Define inputs for conditional logit model
 covariates <- list(profit = profit)
@@ -400,16 +400,32 @@ results_profit <- cond_logit_model(response_matrix = Y,
 
 print(results_profit)
 
+# --- Save model results ---
+
+master_results <- bind_rows(
+  mutate(results_profit$results, variable = "beta_profit"), 
+  mutate(results$results, variable = c("beta_revenue", "beta_fuel"))
+) %>%
+  # 2. Add all constants and calculations at once
+  mutate(
+    IOPAC_PORT_GROUP = "XXXX",
+    min_haul         = 1,
+    obs              = nrow(main_data),
+    unique_zones     = length(zOut$table$n)
+  )
+
+# Save the combined file
+saveRDS(master_results, 
+        file = here::here("data", "confidential", "FishSETfolder", "XXXX", "output", "complete_model_outputs_XXXX.rds"))
+
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
 # --- Predict baseline probabilities ---
-# First item in list is predicted probabilities for each trip
-# Second item in list is predicted probabilities for each zone
 predicted_probabilities <- predict_choice_probs(results_profit, covariates)
 
 # Save data
 predicted_probs_zones <- predicted_probabilities[[2]]
-saveRDS(predicted_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "predicted_probs_zones.rds"))
+saveRDS(predicted_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "XXXX", "output", "predicted_probs_zones_XXXX.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -431,40 +447,45 @@ unique_zones <- unique(main_data$new_zoneID)
 closed_zones_scen1 <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
+
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
-redistributed_probabilities <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen1)
+
+redistributed_probabilities_scen1 <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen1)
 
 # Save data
-redist_probs_zones <- redistributed_probabilities[[2]]
-saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs_zones_scen1.rds"))
+redist_probs_zones_scen1 <- redistributed_probabilities_scen1[[2]]
+saveRDS(redist_probs_zones_scen1, file=here::here("data", "confidential", "FishSETfolder", "XXXX", "output", "redist_probs_zones_scen1_XXXX.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
-## Revenue
+## Profit
 welfare_output_scen1 <- calculate_welfare_change(results_profit, 
                                                      covariates, 
                                                      closed_zones_scen1, 
                                                      cost_variable_index = 1,
                                                      is_cost_variable = FALSE,
-                                                     beta_samples = 20)
+                                                     beta_samples = 1000)
 
 # Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_scen1[[2]]
-mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
 
-welfare_per_trip_scen1 <- main_data %>%
-  dplyr::select(trip_id, haul_id) %>%
-  mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
+# 1. Sum all hauls for each of the 1,000 simulations per trip
+trip_simulations_scen1 <- as.data.frame(welfare_output_scen1[[2]]) %>%
+  mutate(trip_id = main_data$trip_id) %>%
   group_by(trip_id) %>%
-  summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
-  mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
-  summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
+  summarise(across(starts_with("V"), sum)) # Sums each of the 1,000 columns
 
-# positive values indicates LOSS
-welfare_per_trip_scen1
+# 2. Calculate the mean and SD across the entire distribution
+welfare_per_trip_scen1 <- trip_simulations_scen1 %>%
+  # Pivot longer so all 1,000 sims are in one column
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>%
+  summarise(
+    mean_welfare_loss = mean(welfare_loss),
+    sd_welfare_loss = sd(welfare_loss) # This SD now includes simulation uncertainty
+  )
 
 ## SCENARIO 2
 
@@ -484,37 +505,60 @@ unique_zones <- unique(main_data$new_zoneID)
 closed_zones_scen2 <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
+
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
-redistributed_probabilities <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen2)
+
+redistributed_probabilities_scen2 <- predict_redistributed_probs(results_profit, covariates, closed_zones_scen2)
 
 # Save data
-redist_probs_zones <- redistributed_probabilities[[2]]
-saveRDS(redist_probs_zones, file=here::here("data", "confidential", "FishSETfolder", "eureka", "output", "redist_probs_zones_scen2.rds"))
+redist_probs_zones_scen2 <- redistributed_probabilities_scen2[[2]]
+saveRDS(redist_probs_zones_scen2, file=here::here("data", "confidential", "FishSETfolder", "XXXX", "output", "redist_probs_zones_scen2_XXXX.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
-## Revenue
+## Profit
 welfare_output_scen2 <- calculate_welfare_change(results_profit, 
                                                      covariates, 
                                                      closed_zones_scen2, 
                                                      cost_variable_index = 1,
                                                      is_cost_variable = FALSE,
-                                                     beta_samples = 20)
+                                                     beta_samples = 1000)
 
-# Calculate mean welfare loss per TRIP
-welfare_per_haul <- welfare_output_scen2[[2]]
-mean_welfare_per_haul <- rowMeans(welfare_per_haul, na.rm = TRUE)
-
-welfare_per_trip_scen2 <- main_data %>%
-  dplyr::select(trip_id, haul_id) %>%
-  mutate(mean_welfare_per_haul = mean_welfare_per_haul) %>%
+# 1. Sum all hauls for each of the 1,000 simulations per trip
+trip_simulations_scen2 <- as.data.frame(welfare_output_scen2[[2]]) %>%
+  mutate(trip_id = main_data$trip_id) %>%
   group_by(trip_id) %>%
-  summarise(welfare_per_trip=sum(mean_welfare_per_haul)) %>%
-  mutate(welfare_loss_per_trip = -1 * welfare_per_trip) %>%
-  summarise(mean_welfare_per_trip = mean(welfare_loss_per_trip), sd = sd(welfare_loss_per_trip))
+  summarise(across(starts_with("V"), sum)) # Sums each of the 1,000 columns
 
-# positive values indicates LOSS
-welfare_per_trip_scen2 
+# 2. Calculate the mean and SD across the entire distribution
+welfare_per_trip_scen2 <- trip_simulations_scen2 %>%
+  # Pivot longer so all 1,000 sims are in one column
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>%
+  summarise(
+    mean_welfare_loss = mean(welfare_loss),
+    sd_welfare_loss = sd(welfare_loss) # This SD now includes simulation uncertainty
+  )
+
+# --- Save welfare results ---
+
+welfare_results <- bind_rows(
+  mutate(welfare_per_trip_scen1, scenario = 1, closed_val = length(closed_zones_scen1)),
+  mutate(welfare_per_trip_scen2, scenario = 2, closed_val = length(closed_zones_scen2))
+) %>%
+  mutate(
+    IOPAC_PORT_GROUP = "XXXX",
+    beta_samples     = 1000,
+    unique_zones     = length(zOut$table$n),
+    closed_zones     = closed_val,
+    prop_closed      = closed_zones / unique_zones
+  ) %>%
+  select(-closed_val)
+
+# Save the combined file
+saveRDS(welfare_results, 
+        file = here::here("data", "confidential", "FishSETfolder", "XXXX", "output", "complete_welfare_outputs_XXXX.rds"))
+
