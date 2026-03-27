@@ -229,8 +229,8 @@ calculate_welfare_change <- function(model_fit,
     # 2. Assign the correct Marginal Utility (Alpha) for each row
     # If is_first_haul_vec is TRUE, use first_haul_idx; else use other_haul_idx
     alpha_vec <- ifelse(is_first_haul_vec, 
-                        abs(betas_drawn[first_haul_idx]), 
-                        abs(betas_drawn[other_haul_idx]))
+                        betas_drawn[first_haul_idx], 
+                        betas_drawn[other_haul_idx])
     
     # 3. Logsum Calculation
     ls_before <- log(rowSums(exp(utility_before)))
@@ -290,7 +290,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "SCWA"
+project <- "EUREKA"
 update_folderpath()
 
 # DATA PREPARATION --------------------------------------------------------------------------------
@@ -387,11 +387,12 @@ distance <- model_matrices$distance_from_port
 price_per_km <- main_data$price_per_km
 mean_hauls <- main_data$mean_hauls
 
-fuel <- (price_per_km * distance)
-weighted_fuel <- (price_per_km * distance)/mean_hauls
+fuel <- price_per_km * distance
+fuel_p <- (price_per_km * distance)/mean_hauls
 
 # profit
-profit <- revenue - weighted_fuel
+profit <- revenue - fuel
+profit_2 <- revenue - fuel_p
 
 # set up dummy variables
 
@@ -401,6 +402,9 @@ fuel_not_first <- fuel * model_matrices$not_first_dummy
 revenue_first <- revenue * model_matrices$first_haul_dummy
 revenue_not_first <- revenue * model_matrices$not_first_dummy
 
+profit_2_first <- profit_2 * model_matrices$first_haul_dummy
+profit_2_not_first <- profit_2 * model_matrices$not_first_dummy
+
 profit_first <- profit * model_matrices$first_haul_dummy
 profit_not_first <- profit * model_matrices$not_first_dummy
 
@@ -409,32 +413,31 @@ profit_not_first <- profit * model_matrices$not_first_dummy
 # Revenue and Cost #
 
 # Define inputs for conditional logit model
-covariates_rev_fuel <- list(revenue_first = revenue_first,
+covariates_rev <- list(revenue_first = revenue_first,
                    revenue_not_first = revenue_not_first,
                    fuel_first = fuel_first,
                    fuel_not_first = fuel_not_first)
 
-starting_params_rev_fuel <- list(beta_revenue_first = 0,
+starting_params_rev <- list(beta_revenue_first = 0,
                         beta_revenue_not_first = 0,
                         beta_fuel_first = 0,
                         beta_fuel_not_first = 0)
 
 # Fit the conditional logit model
-results_rev_fuel <- cond_logit_model(response_matrix = Y,
-                            covariate_list = covariates_rev_fuel,
-                            start_params = starting_params_rev_fuel)
+results_rev <- cond_logit_model(response_matrix = Y,
+                            covariate_list = covariates_rev,
+                            start_params = starting_params_rev)
 
-print(results_rev_fuel)
+print(results_rev)
 
 # profit #
-# weighted fuel on first haul
 
 # Define inputs for conditional logit model
 covariates_profit <- list(profit_first = profit_first,
-                          profit_not_first = profit_not_first)
+                   profit_not_first = profit_not_first)
 
 starting_params_profit <- list(beta_profit_first = 0,
-                               beta_profit_not_first = 0)
+                        beta_profit_not_first = 0)
 
 # Fit the conditional logit model
 results_profit <- cond_logit_model(response_matrix = Y,
@@ -443,21 +446,35 @@ results_profit <- cond_logit_model(response_matrix = Y,
 
 print(results_profit)
 
+# profit #
+# weighted fuel on first haul
+
+# Define inputs for conditional logit model
+covariates_profit_2 <- list(profit_2_first = profit_2_first,
+                          profit_2_not_first = profit_2_not_first)
+
+starting_params_profit_2 <- list(beta_profit_first = 0,
+                               beta_profit_not_first = 0)
+
+# Fit the conditional logit model
+results_profit_2 <- cond_logit_model(response_matrix = Y,
+                                   covariate_list = covariates_profit_2,
+                                   start_params = starting_params_profit_2)
+
+print(results_profit_2)
+
 ###########################
 
 # --- Save model results ---
 
 master_results <- bind_rows(
-  mutate(results_rev_fuel$results, variable = c("beta_revenue_first", "beta_revenue_not_first", 
-                                                "beta_fuel_first", "beta_fuel_not_first")),
-  mutate(results_profit$results, variable = c("beta_profit_first", "beta_profit_not_first")),
+  mutate(results_profit$results, variable = c("beta_profit_first", "beta_profit_not_first")), 
+  mutate(results_profit_2$results, variable = c("beta_profit_2_first", "beta_profit_2_not_first")),
+  mutate(results_rev$results, variable = c("beta_revenue_first", "beta_revenue_not_first", 
+                                       "beta_fuel_first", "beta_fuel_not_first"))
       ) %>%
-  mutate(model = case_when(
-    str_detect(variable, "fuel|revenue") ~ "revenue_fuel",
-    str_detect(variable, "profit")       ~ "profit"
-  )) %>%
   mutate(
-    IOPAC_PORT_GROUP = "SCWA",
+    IOPAC_PORT_GROUP = "EUREKA",
     min_haul         = 1,
     obs              = nrow(main_data),
     unique_zones     = length(zOut$table$n)
@@ -465,20 +482,20 @@ master_results <- bind_rows(
 
 # Save the combined file
 saveRDS(master_results, 
-        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "complete_model_outputs_SCWA.rds"))
+        file = here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "complete_model_outputs_EUREKA.rds"))
 
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
-# ------------------------ REVENUE AND COST MODEL ----------------------------
+# ------------------------ REVENUE (AND COST) MODEL ----------------------------
 
 # --- Predict baseline probabilities ---
 # Baseline
 
-predicted_probabilities_rev_fuel <- predict_choice_probs(results_rev_fuel, covariates_rev_fuel)
+predicted_probabilities_rev <- predict_choice_probs(results_rev, covariates_rev)
 
 # Save data
-predicted_probs_zones_rev_fuel <- predicted_probabilities_rev_fuel[[2]]
-saveRDS(predicted_probs_zones_rev_fuel, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "predicted_probs_zones_rev_fuel_SCWA.rds"))
+predicted_probs_zones_rev <- predicted_probabilities_rev[[2]]
+saveRDS(predicted_probs_zones_rev, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "predicted_probs_zones_rev_EUREKA.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -504,11 +521,11 @@ closed_zones_scen1 <- intersect(closed_zones, unique_zones)
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
 
-redistributed_probabilities_scen1_rev_fuel <- predict_redistributed_probs(results_rev_fuel, covariates_rev_fuel, closed_zones_scen1)
+redistributed_probabilities_scen1_rev <- predict_redistributed_probs(results_rev, covariates_rev, closed_zones_scen1)
 
 # Save data
-redist_probs_zones_scen1_rev_fuel <- redistributed_probabilities_scen1_rev_fuel[[2]]
-saveRDS(redist_probs_zones_scen1_rev_fuel, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen1_rev_fuel_SCWA.rds"))
+redist_probs_zones_scen1_rev <- redistributed_probabilities_scen1_rev[[2]]
+saveRDS(redist_probs_zones_scen1_rev, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen1_rev_EUREKA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
@@ -517,10 +534,9 @@ saveRDS(redist_probs_zones_scen1_rev_fuel, file=here::here("data", "confidential
 # Create the logical vector: TRUE if it's the first haul, FALSE otherwise
 main_data$is_first <- main_data$haul_counter == 1
 
-# ------ Marginal Utility of Income: Revenue ------
-
-welfare_output_scen1_rev <- calculate_welfare_change(model_fit = results_rev_fuel,
-                                                 covariate_list = covariates_rev_fuel,
+## Revenue
+welfare_output_scen1_rev <- calculate_welfare_change(model_fit = results_rev,
+                                                 covariate_list = covariates_rev,
                                                  closed_zones = closed_zones_scen1,
                                                  first_haul_idx = 1,           # Position of Revenue (First Haul) Beta
                                                  other_haul_idx = 2,           # Position of Revenue (Subsequent) Beta
@@ -542,42 +558,10 @@ welfare_per_trip_scen1_rev <- trip_simulations_scen1_rev %>%
   summarise(
     mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
     sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "revenue")
+  )
 
 # View results
 head(welfare_per_trip_scen1_rev)
-
-# ------ Marginal Utility of Income: Fuel Cost ------
-
-welfare_output_scen1_fuel <- calculate_welfare_change(model_fit = results_rev_fuel,
-                                                     covariate_list = covariates_rev_fuel,
-                                                     closed_zones = closed_zones_scen1,
-                                                     first_haul_idx = 3,           # Position of Fuel Cost (First Haul) Beta
-                                                     other_haul_idx = 4,           # Position of Fuel Cost (Subsequent) Beta
-                                                     is_first_haul_vec = main_data$is_first, 
-                                                     beta_samples = 1000)
-
-# Calculate mean welfare loss per TRIP
-
-# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
-trip_simulations_scen1_fuel <- as.data.frame(welfare_output_scen1_fuel) %>%
-  mutate(trip_id = main_data$trip_id) %>%
-  group_by(trip_id) %>%
-  summarise(across(starts_with("V"), sum))
-
-# 2. Calculate the mean and SD across the entire datasets
-welfare_per_trip_scen1_fuel <- trip_simulations_scen1_fuel %>%
-  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
-  mutate(welfare_loss = -welfare) %>% 
-  summarise(
-    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
-    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "fuel")
-
-# View results
-head(welfare_per_trip_scen1_fuel)
 
 ## SCENARIO 2
 
@@ -601,19 +585,19 @@ closed_zones_scen2 <- intersect(closed_zones, unique_zones)
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
 
-redistributed_probabilities_scen2_rev_fuel <- predict_redistributed_probs(results_rev_fuel, covariates_rev_fuel, closed_zones_scen2)
+redistributed_probabilities_scen2_rev <- predict_redistributed_probs(results_rev, covariates_rev, closed_zones_scen2)
 
 # Save data
-redist_probs_zones_scen2_rev_fuel <- redistributed_probabilities_scen2_rev_fuel[[2]]
-saveRDS(redist_probs_zones_scen2_rev_fuel, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen2_rev_fuel_SCWA.rds"))
+redist_probs_zones_scen2_rev <- redistributed_probabilities_scen2_rev[[2]]
+saveRDS(redist_probs_zones_scen2_rev, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen2_rev_EUREKA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
-# ------ Marginal Utility of Income: Revenue ------
-welfare_output_scen2_rev <- calculate_welfare_change(model_fit = results_rev_fuel,
-                                                 covariate_list = covariates_rev_fuel,
+## Revenue
+welfare_output_scen2_rev <- calculate_welfare_change(model_fit = results_rev,
+                                                 covariate_list = covariates_rev,
                                                  closed_zones = closed_zones_scen2,
                                                  first_haul_idx = 1,           # Position of Revenue (First Haul) Beta
                                                  other_haul_idx = 2,           # Position of Revenue (Subsequent) Beta
@@ -635,63 +619,29 @@ welfare_per_trip_scen2_rev <- trip_simulations_scen2_rev %>%
   summarise(
     mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
     sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "revenue")
+  )
 
 # View results
 head(welfare_per_trip_scen2_rev)
 
-# ------ Marginal Utility of Income: Fuel Cost ------
-welfare_output_scen2_fuel <- calculate_welfare_change(model_fit = results_rev_fuel,
-                                                     covariate_list = covariates_rev_fuel,
-                                                     closed_zones = closed_zones_scen2,
-                                                     first_haul_idx = 3,           # Position of Fuel (First Haul) Beta
-                                                     other_haul_idx = 4,           # Position of Fuel (Subsequent) Beta
-                                                     is_first_haul_vec = main_data$is_first, 
-                                                     beta_samples = 1000)
-
-# Calculate mean welfare loss per TRIP
-
-# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
-trip_simulations_scen2_fuel <- as.data.frame(welfare_output_scen2_fuel) %>%
-  mutate(trip_id = main_data$trip_id) %>%
-  group_by(trip_id) %>%
-  summarise(across(starts_with("V"), sum))
-
-# 2. Calculate the mean and SD across the entire datasets
-welfare_per_trip_scen2_fuel <- trip_simulations_scen2_fuel %>%
-  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
-  mutate(welfare_loss = -welfare) %>% 
-  summarise(
-    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
-    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "fuel")
-
-# View results
-head(welfare_per_trip_scen2_fuel)
-
 # --- Save welfare results ---
 
-welfare_results_rev_fuel <- bind_rows(
+welfare_results_rev <- bind_rows(
   mutate(welfare_per_trip_scen1_rev, scenario = 1, closed_val = length(closed_zones_scen1)),
-  mutate(welfare_per_trip_scen2_rev, scenario = 2, closed_val = length(closed_zones_scen2)),
-  mutate(welfare_per_trip_scen1_fuel, scenario = 1, closed_val = length(closed_zones_scen1)),
-  mutate(welfare_per_trip_scen2_fuel, scenario = 2, closed_val = length(closed_zones_scen2))
+  mutate(welfare_per_trip_scen2_rev, scenario = 2, closed_val = length(closed_zones_scen2))
 ) %>%
   mutate(
-    IOPAC_PORT_GROUP = "SCWA",
+    IOPAC_PORT_GROUP = "EUREKA",
     beta_samples     = 1000,
     unique_zones     = length(zOut$table$n),
     closed_zones     = closed_val,
-    prop_closed      = closed_zones / unique_zones,
-    model            = "revenue_fuel"
+    prop_closed      = closed_zones / unique_zones
   ) %>%
   dplyr::select(-closed_val)
 
 # Save the combined file
-saveRDS(welfare_results_rev_fuel, 
-        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "complete_welfare_outputs_rev_fuel_SCWA.rds"))
+saveRDS(welfare_results_rev, 
+        file = here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "complete_welfare_outputs_rev_EUREKA.rds"))
 
 # ----------------------------- PROFIT MODEL -----------------------------------
 
@@ -700,7 +650,7 @@ predicted_probabilities_profit <- predict_choice_probs(results_profit, covariate
 
 # Save data
 predicted_probs_zones_profit <- predicted_probabilities_profit[[2]]
-saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "predicted_probs_zones_profit_SCWA.rds"))
+saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "predicted_probs_zones_profit_EUREKA.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -730,13 +680,12 @@ redistributed_probabilities_scen1_profit <- predict_redistributed_probs(results_
 
 # Save data
 redist_probs_zones_scen1_profit <- redistributed_probabilities_scen1_profit[[2]]
-saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen1_profit_SCWA.rds"))
+saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen1_profit_EUREKA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
 
-# ------ Marginal Utility of Income: Profit ------
 # Create the logical vector: TRUE if it's the first haul, FALSE otherwise
 main_data$is_first <- main_data$haul_counter == 1
 
@@ -744,8 +693,8 @@ main_data$is_first <- main_data$haul_counter == 1
 welfare_output_scen1_profit <- calculate_welfare_change(model_fit = results_profit,
                                                         covariate_list = covariates_profit,
                                                         closed_zones = closed_zones_scen1,
-                                                        first_haul_idx = 1,           # Position of Profit (First Haul) Beta
-                                                        other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
+                                                        first_haul_idx = 1,           # Position of profit (First Haul) Beta
+                                                        other_haul_idx = 2,           # Position of profit (Subsequent) Beta
                                                         is_first_haul_vec = main_data$is_first, 
                                                         beta_samples = 1000)
 
@@ -764,8 +713,7 @@ welfare_per_trip_scen1_profit <- trip_simulations_scen1_profit %>%
   summarise(
     mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
     sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "profit")
+  )
 
 # View results
 head(welfare_per_trip_scen1_profit)
@@ -796,7 +744,7 @@ redistributed_probabilities_scen2_profit <- predict_redistributed_probs(results_
 
 # Save data
 redist_probs_zones_scen2_profit <- redistributed_probabilities_scen2_profit[[2]]
-saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen2_profit_SCWA.rds"))
+saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen2_profit_EUREKA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
@@ -826,8 +774,7 @@ welfare_per_trip_scen2_profit <- trip_simulations_scen2_profit %>%
   summarise(
     mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
     sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "profit")
+  )
 
 # View results
 head(welfare_per_trip_scen2_profit)
@@ -839,15 +786,169 @@ welfare_results_profit <- bind_rows(
   mutate(welfare_per_trip_scen2_profit, scenario = 2, closed_val = length(closed_zones_scen2))
 ) %>%
   mutate(
-    IOPAC_PORT_GROUP = "SCWA",
+    IOPAC_PORT_GROUP = "EUREKA",
     beta_samples     = 1000,
     unique_zones     = length(zOut$table$n),
     closed_zones     = closed_val,
-    prop_closed      = closed_zones / unique_zones,
-    model            = "profit"
+    prop_closed      = closed_zones / unique_zones
   ) %>%
   dplyr::select(-closed_val)
 
 # Save the combined file
 saveRDS(welfare_results_profit, 
-        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "complete_welfare_outputs_profit_SCWA.rds"))
+        file = here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "complete_welfare_outputs_profit_EUREKA.rds"))
+
+# ----------------------------- PROFIT_2 MODEL -----------------------------------
+
+# --- Predict baseline probabilities ---
+predicted_probabilities_profit_2 <- predict_choice_probs(results_profit_2, covariates_profit_2)
+
+# Save data
+predicted_probs_zones_profit_2 <- predicted_probabilities_profit_2[[2]]
+saveRDS(predicted_probs_zones_profit_2, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "predicted_probs_zones_profit_2_EUREKA.rds"))
+
+# --- Load and process the zone closure scenario ---
+
+## SCENARIO 1
+
+scenario_name <- "closure_1"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_1 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_1.rds")
+
+yaml::write_yaml(scenario_1, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones_scen1 <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+
+redistributed_probabilities_scen1_profit_2 <- predict_redistributed_probs(results_profit_2, covariates_profit_2, closed_zones_scen1)
+
+# Save data
+redist_probs_zones_scen1_profit_2 <- redistributed_probabilities_scen1_profit_2[[2]]
+saveRDS(redist_probs_zones_scen1_profit_2, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen1_profit_2_EUREKA.rds"))
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+
+# Create the logical vector: TRUE if it's the first haul, FALSE otherwise
+main_data$is_first <- main_data$haul_counter == 1
+
+## profit
+welfare_output_scen1_profit_2 <- calculate_welfare_change(model_fit = results_profit_2,
+                                                        covariate_list = covariates_profit_2,
+                                                        closed_zones = closed_zones_scen1,
+                                                        first_haul_idx = 1,           # Position of profit (First Haul) Beta
+                                                        other_haul_idx = 2,           # Position of profit (Subsequent) Beta
+                                                        is_first_haul_vec = main_data$is_first, 
+                                                        beta_samples = 1000)
+
+# Calculate mean welfare loss per TRIP
+
+# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
+trip_simulations_scen1_profit_2 <- as.data.frame(welfare_output_scen1_profit_2) %>%
+  mutate(trip_id = main_data$trip_id) %>%
+  group_by(trip_id) %>%
+  summarise(across(starts_with("V"), sum))
+
+# 2. Calculate the mean and SD across the entire datasets
+welfare_per_trip_scen1_profit_2 <- trip_simulations_scen1_profit_2 %>%
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>% 
+  summarise(
+    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
+    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
+  )
+
+# View results
+head(welfare_per_trip_scen1_profit_2)
+
+## SCENARIO 2
+
+scenario_name <- "closure_2"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_2 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_2.rds")
+
+yaml::write_yaml(scenario_2, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones_scen2 <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+
+redistributed_probabilities_scen2_profit_2 <- predict_redistributed_probs(results_profit_2, covariates_profit_2, closed_zones_scen2)
+
+# Save data
+redist_probs_zones_scen2_profit_2 <- redistributed_probabilities_scen2_profit_2[[2]]
+saveRDS(redist_probs_zones_scen2_profit_2, file=here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "redist_probs_zones_scen2_profit_2_EUREKA.rds"))
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+
+## profit
+welfare_output_scen2_profit_2 <- calculate_welfare_change(model_fit = results_profit_2,
+                                                        covariate_list = covariates_profit_2,
+                                                        closed_zones = closed_zones_scen2,
+                                                        first_haul_idx = 1,           # Position of profit (First Haul) Beta
+                                                        other_haul_idx = 2,           # Position of profit (Subsequent) Beta
+                                                        is_first_haul_vec = main_data$is_first, 
+                                                        beta_samples = 1000)
+
+# Calculate mean welfare loss per TRIP
+
+# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
+trip_simulations_scen2_profit_2 <- as.data.frame(welfare_output_scen2_profit_2) %>%
+  mutate(trip_id = main_data$trip_id) %>%
+  group_by(trip_id) %>%
+  summarise(across(starts_with("V"), sum))
+
+# 2. Calculate the mean and SD across the entire datasets
+welfare_per_trip_scen2_profit_2 <- trip_simulations_scen2_profit_2 %>%
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>% 
+  summarise(
+    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
+    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
+  )
+
+# View results
+head(welfare_per_trip_scen2_profit_2)
+
+# --- Save welfare results ---
+
+welfare_results_profit_2 <- bind_rows(
+  mutate(welfare_per_trip_scen1_profit_2, scenario = 1, closed_val = length(closed_zones_scen1)),
+  mutate(welfare_per_trip_scen2_profit_2, scenario = 2, closed_val = length(closed_zones_scen2))
+) %>%
+  mutate(
+    IOPAC_PORT_GROUP = "EUREKA",
+    beta_samples     = 1000,
+    unique_zones     = length(zOut$table$n),
+    closed_zones     = closed_val,
+    prop_closed      = closed_zones / unique_zones
+  ) %>%
+  dplyr::select(-closed_val)
+
+# Save the combined file
+saveRDS(welfare_results_profit_2, 
+        file = here::here("data", "confidential", "FishSETfolder", "EUREKA", "output", "complete_welfare_outputs_profit_2_EUREKA.rds"))

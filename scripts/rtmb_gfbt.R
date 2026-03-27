@@ -184,7 +184,7 @@ calculate_welfare_change <- function(model_fit,
                                      covariate_list, 
                                      closed_zones, 
                                      cost_variable_index,
-                                     is_cost_variable = FALSE,  # <--- NEW ARGUMENT HERE
+                                     is_cost_variable = FALSE,
                                      beta_samples = 20) {
   
   if (!requireNamespace("MASS", quietly = TRUE)) {

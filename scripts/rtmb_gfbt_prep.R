@@ -38,45 +38,43 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# ASTORIA -----------------------------------------------------------------------
+# SCWA -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "ASTORIA"
-
-# LOAD DATA --------------------------------------------------------------------
+project <- "SCWA"
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-ASTORIA_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/ASTORIA.rds"
+SCWA_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/SOUTH AND CENTRAL WA COAST.rds"
 update_folderpath()
-load_maindata(ASTORIA_data, project = "ASTORIA", over_write = TRUE)
-ASTORIAMainDataTable <- table_view("ASTORIAMainDataTable", 
-                                project = "ASTORIA")
+load_maindata(SCWA_data, project = "SCWA", over_write = TRUE)
+SCWAMainDataTable <- table_view("SCWAMainDataTable", 
+                                project = "SCWA")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "ASTORIA")
-ASTORIA5x5SpatTable <- table_view("ASTORIA5x5SpatTable",
-                               project = "ASTORIA")
+load_spatial(spat, name = "5x5", project = "SCWA")
+SCWA5x5SpatTable <- table_view("SCWA5x5SpatTable",
+                               project = "SCWA")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "ASTORIA")
-ASTORIAPortTable <- table_view("ASTORIAPortTable",
-                            project = "ASTORIA")
+load_port(ports, port_name = "port_code", project = "SCWA")
+SCWAPortTable <- table_view("SCWAPortTable",
+                            project = "SCWA")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Assign zone ID for primary data
 
-ASTORIAMainDataTable <- assignment_column(dat = ASTORIAMainDataTable, 
+SCWAMainDataTable <- assignment_column(dat = SCWAMainDataTable, 
                                        project = project, 
-                                       spat = ASTORIA5x5SpatTable,
+                                       spat = SCWA5x5SpatTable,
                                        lon.dat = "centro_lon", 
                                        lat.dat = "centro_lat", 
                                        cat = "GRID5KM_ID", 
@@ -84,8 +82,8 @@ ASTORIAMainDataTable <- assignment_column(dat = ASTORIAMainDataTable,
 
 # Plot zone summary
 
-zone_summary(dat = ASTORIAMainDataTable, 
-             spat = ASTORIA5x5SpatTable, 
+zone_summary(dat = SCWAMainDataTable, 
+             spat = SCWA5x5SpatTable, 
              project = project, 
              zone.dat = "new_zoneID", 
              zone.spat = "GRID5KM_ID", 
@@ -93,7 +91,7 @@ zone_summary(dat = ASTORIAMainDataTable,
 
 # Create centroid
 
-create_centroid(spat = ASTORIA5x5SpatTable, 
+create_centroid(spat = SCWA5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -101,7 +99,7 @@ create_centroid(spat = ASTORIA5x5SpatTable,
 
 # Starting location
 
-ASTORIAMainDataTable <- change_class(dat = ASTORIAMainDataTable, 
+SCWAMainDataTable <- change_class(dat = SCWAMainDataTable, 
                                   project = project, 
                                   x = "startingloc", 
                                   new_class = 'character', 
@@ -110,49 +108,43 @@ ASTORIAMainDataTable <- change_class(dat = ASTORIAMainDataTable,
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-ASTORIAMainDataTable <- nan_filter(ASTORIAMainDataTable, 
+SCWAMainDataTable <- nan_filter(SCWAMainDataTable, 
                                 project = project, 
                                 remove = TRUE,
                                 over_write = TRUE)
 
-ASTORIAMainDataTable <- na_filter(ASTORIAMainDataTable, 
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
                                project = project,
                                x = "tow_r",
                                remove = TRUE,
                                over_write = TRUE)
 
-ASTORIAMainDataTable <- na_filter(ASTORIAMainDataTable, 
-                               project = project,
-                               x = "tow_lb",
-                               remove = TRUE,
-                               over_write = TRUE)
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
+                                project = project,
+                                x = "date_time",
+                                remove = TRUE,
+                                over_write = TRUE)
 
-ASTORIAMainDataTable <- na_filter(ASTORIAMainDataTable, 
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
                                project = project,
                                x = "port_zoneID",
                                remove = TRUE,
                                over_write = TRUE)
 
-ASTORIAMainDataTable <- na_filter(ASTORIAMainDataTable, 
-                                   project = project,
-                                   x = "vessel_id",
-                                   remove = TRUE,
-                                   over_write = TRUE)
-
 # Alternative choice
-create_alternative_choice(dat = ASTORIAMainDataTable, 
+create_alternative_choice(dat = SCWAMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "startingloc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
                           zoneID = "new_zoneID", 
-                          zone.cent.name = "ASTORIAZoneCentroid")
+                          zone.cent.name = "SCWAZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = ASTORIAMainDataTable[z_ind, ], 
-                     spat = ASTORIA5x5SpatTable, 
+zOut <- zone_summary(dat = SCWAMainDataTable[z_ind, ], 
+                     spat = SCWA5x5SpatTable, 
                      project = project, 
                      zone.dat = "new_zoneID",
                      zone.spat = "GRID5KM_ID", 
@@ -163,7 +155,7 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = ASTORIAMainDataTable, 
+create_expectations(dat = SCWAMainDataTable, 
                     project = project,
                     name = "exp1",
                     catch = "tow_r",
@@ -178,7 +170,7 @@ create_expectations(dat = ASTORIAMainDataTable,
 
 # Check model data
 
-check_model_data(ASTORIAMainDataTable, 
+check_model_data(SCWAMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
