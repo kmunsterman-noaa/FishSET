@@ -404,6 +404,9 @@ revenue_not_first <- revenue * model_matrices$not_first_dummy
 profit_first <- profit * model_matrices$first_haul_dummy
 profit_not_first <- profit * model_matrices$not_first_dummy
 
+distance_first <- distance * model_matrices$first_haul_dummy
+distance_not_first <- distance * model_matrices$not_first_dummy
+
 # MODEL FITTING -----------------------------------------------------------------------------------
 
 # Revenue and Cost #
@@ -426,8 +429,7 @@ results_rev_fuel <- cond_logit_model(response_matrix = Y,
 
 print(results_rev_fuel)
 
-# profit #
-# weighted fuel on first haul
+# Profit #
 
 # Define inputs for conditional logit model
 covariates_profit <- list(profit_first = profit_first,
@@ -443,6 +445,39 @@ results_profit <- cond_logit_model(response_matrix = Y,
 
 print(results_profit)
 
+# Profit + distance #
+
+# check collinearity #
+####
+profit_vec <- as.vector(profit)
+dist_vec <- as.vector(distance)
+
+# Remove NAs if any exist (though your prep script should have handled this)
+valid_idx <- !is.na(profit_vec) & !is.na(dist_vec)
+
+# Find correlation value
+correlation_value <- cor(profit_vec[valid_idx], dist_vec[valid_idx])
+correlation_value
+
+
+# Define inputs for conditional logit model
+covariates_profit_distance <- list(profit_first = profit_first,
+                          profit_not_first = profit_not_first,
+                          distance_first = distance_first,
+                          distance_not_first = distance_not_first)
+
+starting_params_profit_distance <- list(beta_profit_first = 0,
+                               beta_profit_not_first = 0,
+                               beta_distance_first = 0,
+                               beta_distance_not_first = 0)
+
+# Fit the conditional logit model
+results_profit_distance <- cond_logit_model(response_matrix = Y,
+                                   covariate_list = covariates_profit_distance,
+                                   start_params = starting_params_profit_distance)
+
+print(results_profit_distance)
+
 ###########################
 
 # --- Save model results ---
@@ -450,11 +485,14 @@ print(results_profit)
 master_results <- bind_rows(
   mutate(results_rev_fuel$results, variable = c("beta_revenue_first", "beta_revenue_not_first", 
                                                 "beta_fuel_first", "beta_fuel_not_first")),
-  mutate(results_profit$results, variable = c("beta_profit_first", "beta_profit_not_first")),
+  mutate(results_profit$results, variable = c("beta_profit_only_first", "beta_profit_only_not_first")),
+  mutate(results_profit_distance$results, variable = c("beta_profit_first", "beta_profit_not_first",
+                                                       "beta_distance_first", "beta_distance_not_first")),
       ) %>%
   mutate(model = case_when(
     str_detect(variable, "fuel|revenue") ~ "revenue_fuel",
-    str_detect(variable, "profit")       ~ "profit"
+    str_detect(variable, "profit_only")       ~ "profit",
+    str_detect(variable, "profit|distance") ~ "profit_distance",
   )) %>%
   mutate(
     IOPAC_PORT_GROUP = "SCWA",
@@ -500,10 +538,9 @@ unique_zones <- unique(main_data$new_zoneID)
 closed_zones_scen1 <- intersect(closed_zones, unique_zones)
 
 # --- Predict redistributed probabilities under the closure ---
-
+  
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
-
 redistributed_probabilities_scen1_rev_fuel <- predict_redistributed_probs(results_rev_fuel, covariates_rev_fuel, closed_zones_scen1)
 
 # Save data
@@ -518,6 +555,8 @@ saveRDS(redist_probs_zones_scen1_rev_fuel, file=here::here("data", "confidential
 main_data$is_first <- main_data$haul_counter == 1
 
 # ------ Marginal Utility of Income: Revenue ------
+
+if (length(closed_zones_scen1) > 0) {
 
 welfare_output_scen1_rev <- calculate_welfare_change(model_fit = results_rev_fuel,
                                                  covariate_list = covariates_rev_fuel,
@@ -548,8 +587,22 @@ welfare_per_trip_scen1_rev <- trip_simulations_scen1_rev %>%
 # View results
 head(welfare_per_trip_scen1_rev)
 
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 1: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen1_rev <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "revenue"
+  )
+}
+
 # ------ Marginal Utility of Income: Fuel Cost ------
 
+if (length(closed_zones_scen1) > 0) {
+  
 welfare_output_scen1_fuel <- calculate_welfare_change(model_fit = results_rev_fuel,
                                                      covariate_list = covariates_rev_fuel,
                                                      closed_zones = closed_zones_scen1,
@@ -578,6 +631,18 @@ welfare_per_trip_scen1_fuel <- trip_simulations_scen1_fuel %>%
 
 # View results
 head(welfare_per_trip_scen1_fuel)
+
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 1: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen1_fuel <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "fuel"
+  )
+}
 
 ## SCENARIO 2
 
@@ -612,6 +677,9 @@ saveRDS(redist_probs_zones_scen2_rev_fuel, file=here::here("data", "confidential
 # values would indicate gains)
 
 # ------ Marginal Utility of Income: Revenue ------
+
+if (length(closed_zones_scen1) > 0) {
+  
 welfare_output_scen2_rev <- calculate_welfare_change(model_fit = results_rev_fuel,
                                                  covariate_list = covariates_rev_fuel,
                                                  closed_zones = closed_zones_scen2,
@@ -641,7 +709,22 @@ welfare_per_trip_scen2_rev <- trip_simulations_scen2_rev %>%
 # View results
 head(welfare_per_trip_scen2_rev)
 
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 2: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen2_rev <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "revenue"
+  )
+}
+
 # ------ Marginal Utility of Income: Fuel Cost ------
+
+if (length(closed_zones_scen1) > 0) {
+  
 welfare_output_scen2_fuel <- calculate_welfare_change(model_fit = results_rev_fuel,
                                                      covariate_list = covariates_rev_fuel,
                                                      closed_zones = closed_zones_scen2,
@@ -670,6 +753,18 @@ welfare_per_trip_scen2_fuel <- trip_simulations_scen2_fuel %>%
 
 # View results
 head(welfare_per_trip_scen2_fuel)
+
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 2: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen2_fuel <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "fuel"
+  )
+}
 
 # --- Save welfare results ---
 
@@ -740,6 +835,8 @@ saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential",
 # Create the logical vector: TRUE if it's the first haul, FALSE otherwise
 main_data$is_first <- main_data$haul_counter == 1
 
+if (length(closed_zones_scen1) > 0) {
+
 ## profit
 welfare_output_scen1_profit <- calculate_welfare_change(model_fit = results_profit,
                                                         covariate_list = covariates_profit,
@@ -769,6 +866,18 @@ welfare_per_trip_scen1_profit <- trip_simulations_scen1_profit %>%
 
 # View results
 head(welfare_per_trip_scen1_profit)
+
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 1: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen1_profit <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "profit"
+  )
+}
 
 ## SCENARIO 2
 
@@ -803,6 +912,9 @@ saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential",
 # values would indicate gains)
 
 ## profit
+
+if (length(closed_zones_scen1) > 0) {
+  
 welfare_output_scen2_profit <- calculate_welfare_change(model_fit = results_profit,
                                                         covariate_list = covariates_profit,
                                                         closed_zones = closed_zones_scen2,
@@ -832,6 +944,18 @@ welfare_per_trip_scen2_profit <- trip_simulations_scen2_profit %>%
 # View results
 head(welfare_per_trip_scen2_profit)
 
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 2: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen2_profit <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "profit"
+  )
+}
+
 # --- Save welfare results ---
 
 welfare_results_profit <- bind_rows(
@@ -851,3 +975,192 @@ welfare_results_profit <- bind_rows(
 # Save the combined file
 saveRDS(welfare_results_profit, 
         file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "complete_welfare_outputs_profit_SCWA.rds"))
+
+# ----------------------- PROFIT + DISTANCE MODEL ------------------------------
+
+# --- Predict baseline probabilities ---
+predicted_probabilities_profit_distance <- predict_choice_probs(results_profit_distance, covariates_profit_distance)
+
+# Save data
+predicted_probs_zones_profit_distance <- predicted_probabilities_profit_distance[[2]]
+saveRDS(predicted_probs_zones_profit_distance, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "predicted_probs_zones_profit_distance_SCWA.rds"))
+
+# --- Load and process the zone closure scenario ---
+
+## SCENARIO 1
+
+scenario_name <- "closure_1"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_1 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_1.rds")
+
+yaml::write_yaml(scenario_1, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones_scen1 <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+
+redistributed_probabilities_scen1_profit_distance <- predict_redistributed_probs(results_profit_distance, covariates_profit_distance, closed_zones_scen1)
+
+# Save data
+redist_probs_zones_scen1_profit_distance <- redistributed_probabilities_scen1_profit_distance[[2]]
+saveRDS(redist_probs_zones_scen1_profit_distance, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen1_profit_distance_SCWA.rds"))
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+
+# ------ Marginal Utility of Income: Profit + Distance ------
+# Create the logical vector: TRUE if it's the first haul, FALSE otherwise
+main_data$is_first <- main_data$haul_counter == 1
+
+## profit
+
+if (length(closed_zones_scen1) > 0) {
+  
+welfare_output_scen1_profit_distance <- calculate_welfare_change(model_fit = results_profit_distance,
+                                                        covariate_list = covariates_profit_distance,
+                                                        closed_zones = closed_zones_scen1,
+                                                        first_haul_idx = 1,           # Position of Profit (First Haul) Beta
+                                                        other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
+                                                        is_first_haul_vec = main_data$is_first, 
+                                                        beta_samples = 1000)
+
+# Calculate mean welfare loss per TRIP
+
+# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
+trip_simulations_scen1_profit_distance <- as.data.frame(welfare_output_scen1_profit_distance) %>%
+  mutate(trip_id = main_data$trip_id) %>%
+  group_by(trip_id) %>%
+  summarise(across(starts_with("V"), sum))
+
+# 2. Calculate the mean and SD across the entire datasets
+welfare_per_trip_scen1_profit_distance <- trip_simulations_scen1_profit_distance %>%
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>% 
+  summarise(
+    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
+    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
+  ) %>%
+  mutate(mui = "profit_distance")
+
+# View results
+head(welfare_per_trip_scen1_profit_distance)
+
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 1: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen1_profit_distance <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "profit_distance"
+  )
+}
+
+## SCENARIO 2
+
+scenario_name <- "closure_2"
+
+filename <- paste0(locoutput(project), scenario_name, "_closures.yaml")
+
+scenario_2 <- readRDS("~/Documents/GitHub/FishSET/data/non-confidential/other/scen_2.rds")
+
+yaml::write_yaml(scenario_2, filename)
+
+closures <- yaml::read_yaml(filename)
+
+closed_zones <- gsub("Zone_", "", closures$GRID5KM_ID[closures$scenario == scenario_name])
+
+unique_zones <- unique(main_data$new_zoneID)
+closed_zones_scen2 <- intersect(closed_zones, unique_zones)
+
+# --- Predict redistributed probabilities under the closure ---
+
+# First item in list is redistributed probabilities for each trip
+# Second item is redistributed probabilities for each zone
+
+redistributed_probabilities_scen2_profit_distance <- predict_redistributed_probs(results_profit_distance, covariates_profit_distance, closed_zones_scen2)
+
+# Save data
+redist_probs_zones_scen2_profit_distance <- redistributed_probabilities_scen2_profit_distance[[2]]
+saveRDS(redist_probs_zones_scen2_profit_distance, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "redist_probs_zones_scen2_profit_distance_SCWA.rds"))
+
+# --- Run welfare analysis ---
+# The losses are reported as positive values in the output (thus, negative 
+# values would indicate gains)
+
+## profit
+
+if (length(closed_zones_scen1) > 0) {
+  
+welfare_output_scen2_profit_distance <- calculate_welfare_change(model_fit = results_profit_distance,
+                                                        covariate_list = covariates_profit_distance,
+                                                        closed_zones = closed_zones_scen2,
+                                                        first_haul_idx = 1,           # Position of profit (First Haul) Beta
+                                                        other_haul_idx = 2,           # Position of profit (Subsequent) Beta
+                                                        is_first_haul_vec = main_data$is_first, 
+                                                        beta_samples = 1000)
+
+# Calculate mean welfare loss per TRIP
+
+# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
+trip_simulations_scen2_profit_distance <- as.data.frame(welfare_output_scen2_profit_distance) %>%
+  mutate(trip_id = main_data$trip_id) %>%
+  group_by(trip_id) %>%
+  summarise(across(starts_with("V"), sum))
+
+# 2. Calculate the mean and SD across the entire datasets
+welfare_per_trip_scen2_profit_distance <- trip_simulations_scen2_profit_distance %>%
+  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
+  mutate(welfare_loss = -welfare) %>% 
+  summarise(
+    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
+    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
+  ) %>%
+  mutate(mui = "profit_distance")
+
+# View results
+head(welfare_per_trip_scen2_profit_distance)
+
+} else {
+  
+  # SKIP ANALYSIS: Create dummy row with 0s
+  message("Scenario 2: No overlap found for this port. Filling with zeros.")
+  
+  welfare_per_trip_scen2_profit_distance <- data.frame(
+    mean_welfare_loss = 0,
+    sd_welfare_loss = 0,
+    mui = "profit_distance"
+  )
+}
+
+# --- Save welfare results ---
+
+welfare_results_profit_distance <- bind_rows(
+  mutate(welfare_per_trip_scen1_profit_distance, scenario = 1, closed_val = length(closed_zones_scen1)),
+  mutate(welfare_per_trip_scen2_profit_distance, scenario = 2, closed_val = length(closed_zones_scen2))
+) %>%
+  mutate(
+    IOPAC_PORT_GROUP = "SCWA",
+    beta_samples     = 1000,
+    unique_zones     = length(zOut$table$n),
+    closed_zones     = closed_val,
+    prop_closed      = closed_zones / unique_zones,
+    model            = "profit_distance"
+  ) %>%
+  dplyr::select(-closed_val)
+
+# Save the combined file
+saveRDS(welfare_results_profit_distance, 
+        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "complete_welfare_outputs_profit_distance_SCWA.rds"))
