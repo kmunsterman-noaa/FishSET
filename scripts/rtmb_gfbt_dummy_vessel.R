@@ -484,9 +484,19 @@ master_results <- results_profit_vessel$results %>%
 saveRDS(master_results, 
         file = here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "complete_model_outputs_NEWP.rds"))
 
-# Check for multicollinearity
+## check
 
-newport_model <- lm(outcome ~ profit_first + profit_not_first + vessel_id, data = master_results)
+# Count hauls per vessel in Newport
+vessel_haul_counts <- main_data %>%
+  group_by(vessel_id) %>%
+  tally(name = "num_hauls") %>%
+  arrange(num_hauls)
+
+print(vessel_haul_counts)
+
+# Summary of the distribution
+summary(vessel_haul_counts$num_hauls)
+nrow(vessel_haul_counts[vessel_haul_counts$num_hauls < 20, ])
 
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
