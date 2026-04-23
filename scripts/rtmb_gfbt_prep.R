@@ -38,43 +38,43 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# EUREKA -----------------------------------------------------------------------
+# NEWP -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "EUREKA"
+project <- "NEWP"
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-EUREKA_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/EUREKA.rds"
+NEWP_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/NEWPORT.rds"
 update_folderpath()
-load_maindata(EUREKA_data, project = "EUREKA", over_write = TRUE)
-EUREKAMainDataTable <- table_view("EUREKAMainDataTable", 
-                                project = "EUREKA")
+load_maindata(NEWP_data, project = "NEWP", over_write = TRUE)
+NEWPMainDataTable <- table_view("NEWPMainDataTable", 
+                                project = "NEWP")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "EUREKA")
-EUREKA5x5SpatTable <- table_view("EUREKA5x5SpatTable",
-                               project = "EUREKA")
+load_spatial(spat, name = "5x5", project = "NEWP")
+NEWP5x5SpatTable <- table_view("NEWP5x5SpatTable",
+                               project = "NEWP")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "EUREKA")
-EUREKAPortTable <- table_view("EUREKAPortTable",
-                            project = "EUREKA")
+load_port(ports, port_name = "port_code", project = "NEWP")
+NEWPPortTable <- table_view("NEWPPortTable",
+                            project = "NEWP")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Assign zone ID for primary data
 
-EUREKAMainDataTable <- assignment_column(dat = EUREKAMainDataTable, 
+NEWPMainDataTable <- assignment_column(dat = NEWPMainDataTable, 
                                        project = project, 
-                                       spat = EUREKA5x5SpatTable,
+                                       spat = NEWP5x5SpatTable,
                                        lon.dat = "centro_lon", 
                                        lat.dat = "centro_lat", 
                                        cat = "GRID5KM_ID", 
@@ -82,8 +82,8 @@ EUREKAMainDataTable <- assignment_column(dat = EUREKAMainDataTable,
 
 # Plot zone summary
 
-zone_summary(dat = EUREKAMainDataTable, 
-             spat = EUREKA5x5SpatTable, 
+zone_summary(dat = NEWPMainDataTable, 
+             spat = NEWP5x5SpatTable, 
              project = project, 
              zone.dat = "new_zoneID", 
              zone.spat = "GRID5KM_ID", 
@@ -91,7 +91,7 @@ zone_summary(dat = EUREKAMainDataTable,
 
 # Create centroid
 
-create_centroid(spat = EUREKA5x5SpatTable, 
+create_centroid(spat = NEWP5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -99,7 +99,7 @@ create_centroid(spat = EUREKA5x5SpatTable,
 
 # Starting location
 
-EUREKAMainDataTable <- change_class(dat = EUREKAMainDataTable, 
+NEWPMainDataTable <- change_class(dat = NEWPMainDataTable, 
                                   project = project, 
                                   x = "startingloc", 
                                   new_class = 'character', 
@@ -108,43 +108,43 @@ EUREKAMainDataTable <- change_class(dat = EUREKAMainDataTable,
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-EUREKAMainDataTable <- nan_filter(EUREKAMainDataTable, 
+NEWPMainDataTable <- nan_filter(NEWPMainDataTable, 
                                 project = project, 
                                 remove = TRUE,
                                 over_write = TRUE)
 
-EUREKAMainDataTable <- na_filter(EUREKAMainDataTable, 
+NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
                                project = project,
                                x = "tow_r",
                                remove = TRUE,
                                over_write = TRUE)
 
-EUREKAMainDataTable <- na_filter(EUREKAMainDataTable, 
+NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
                                 project = project,
                                 x = "date_time",
                                 remove = TRUE,
                                 over_write = TRUE)
 
-EUREKAMainDataTable <- na_filter(EUREKAMainDataTable, 
+NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
                                project = project,
                                x = "port_zoneID",
                                remove = TRUE,
                                over_write = TRUE)
 
 # Alternative choice
-create_alternative_choice(dat = EUREKAMainDataTable, 
+create_alternative_choice(dat = NEWPMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "startingloc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
                           zoneID = "new_zoneID", 
-                          zone.cent.name = "EUREKAZoneCentroid")
+                          zone.cent.name = "NEWPZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = EUREKAMainDataTable[z_ind, ], 
-                     spat = EUREKA5x5SpatTable, 
+zOut <- zone_summary(dat = NEWPMainDataTable[z_ind, ], 
+                     spat = NEWP5x5SpatTable, 
                      project = project, 
                      zone.dat = "new_zoneID",
                      zone.spat = "GRID5KM_ID", 
@@ -155,7 +155,7 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = EUREKAMainDataTable, 
+create_expectations(dat = NEWPMainDataTable, 
                     project = project,
                     name = "exp1",
                     catch = "tow_r",
@@ -170,7 +170,7 @@ create_expectations(dat = EUREKAMainDataTable,
 
 # Check model data
 
-check_model_data(EUREKAMainDataTable, 
+check_model_data(NEWPMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
