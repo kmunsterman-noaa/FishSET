@@ -290,7 +290,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "NEWP"
+project <- "SCWA"
 update_folderpath()
 
 # DATA PREPARATION --------------------------------------------------------------------------------
@@ -299,7 +299,7 @@ update_folderpath()
 main_data <- table_view(paste0(project, "MainDataTable"), project)
 
 #####################################################################
-# Create dummy variable
+# Create dummy variable for first haul vs. non-first hauls
 main_data <- main_data %>%
   group_by(ftid) %>%
   mutate(first_haul_dummy = ifelse(haul_counter == min(haul_counter), 1, 0)) %>%
@@ -402,34 +402,53 @@ profit_not_first <- profit * model_matrices$not_first_dummy
 
 # --- Create Vessel Fixed Effects ---
 
-# 1. Get the unique haul IDs in the exact order they appear in the wide matrix
-# Usually, this is the unique 'id_col' from your df_long
-ordered_haul_ids <- unique(df_long$haul_id)
+vessel_haul_counts <- main_data %>%
+  group_by(vessel_id) %>%
+  tally(name = "num_hauls") %>%
+  arrange(desc(num_hauls))
 
-# 2. Map vessel_id to the rows of Y
-# We look up the vessel for each haul_id in our ordered list
-vessel_mapping <- main_data$vessel_id[match(ordered_haul_ids, main_data$haul_id)]
+# We set the threshold at the 25th percentile (1st Quartile)
+# This identifies the 'thin tail' regardless of whether it's 5 hauls or 50.
+threshold <- quantile(vessel_haul_counts$num_hauls, 0.25)
 
-unique_vessels <- unique(vessel_mapping)
+# Separate vessels into Core and Low-Frequency
+core_vessels <- vessel_haul_counts %>% filter(num_hauls > threshold) %>% pull(vessel_id)
+low_freq_vessels <- vessel_haul_counts %>% filter(num_hauls <= threshold) %>% pull(vessel_id)
 
-# 3. Create the vessel-specific profit interactions
+# --- 2. Set Reference (Must be from the Core Fleet) ---
+best_ref <- core_vessels[1]
+unique_core <- setdiff(core_vessels, best_ref)
+
+# Pull the vessel_id column from the same data used to build profit_first
+vessel_mapping <- main_data$vessel_id
+
 vessel_covs <- list()
 vessel_starts <- list()
 
-# Use 2:length to set a reference vessel (baseline)
-for(i in 2:length(unique_vessels)) {
-  v_id <- unique_vessels[i]
-  
-  # Binary mask: 1 if this row belongs to vessel i
+# --- 3. Loop for Core Vessels (Individual IDs) ---
+for(v_id in unique_core) {
   vessel_mask <- as.numeric(vessel_mapping == v_id)
   
-  # Multiply profit matrix by the mask (broadcasting the vector to match the matrix)
-  # This makes the matrix 'profit' for vessel i and '0' for all others
-  v_profit_matrix <- vessel_mask * profit 
+  v_name_f <- paste0("beta_vessel_first_", v_id)
+  v_name_nf <- paste0("beta_vessel_not_first_", v_id)
   
-  v_name <- paste0("beta_vessel_", v_id)
-  vessel_covs[[v_name]] <- v_profit_matrix
-  vessel_starts[[v_name]] <- 0
+  vessel_covs[[v_name_f]] <- vessel_mask * profit_first
+  vessel_covs[[v_name_nf]] <- vessel_mask * profit_not_first
+  
+  vessel_starts[[v_name_f]] <- 0
+  vessel_starts[[v_name_nf]] <- 0
+}
+
+# --- 4. Group the Low-Frequency Vessels (Shared ID) ---
+if(length(low_freq_vessels) > 0) {
+  # Create a mask that is 1 if the vessel is ANY of the low-frequency IDs
+  low_freq_mask <- as.numeric(vessel_mapping %in% low_freq_vessels)
+  
+  vessel_covs[["beta_vessel_first_LOW"]] <- low_freq_mask * profit_first
+  vessel_covs[["beta_vessel_not_first_LOW"]] <- low_freq_mask * profit_not_first
+  
+  vessel_starts[["beta_vessel_first_LOW"]] <- 0
+  vessel_starts[["beta_vessel_not_first_LOW"]] <- 0
 }
 
 # MODEL FITTING -----------------------------------------------------------------------------------
@@ -450,28 +469,81 @@ results_profit_vessel <- cond_logit_model(response_matrix = Y,
                                    covariate_list = all_covariates,
                                    start_params = all_params)
 
-print(results_profit_vessel$results)
+res <- results_profit_vessel$results
 
-###########################
+## Estimates across all vessels
+
+unique_vessels <- unique(main_data$vessel_id)
+
+# Setup metadata for weighted-means
+n_total <- length(unique_vessels) # All vessels in the port
+n_low <- length(low_freq_vessels) # Number of vessels grouped into 'LOW'
+
+# Function to extract
+get_fleet_stats <- function(global_name, offset_pattern, results_obj) {
+  
+  # Extract names and vcov
+  # vcov contains the variances and covariances for all estimated betas
+  all_params <- names(results_obj$fit$par)
+  vcov_mat <- results_obj$sdr$cov.fixed
+  res_table <- results_obj$results
+  
+  L <- rep(0, length(all_params))
+  names(L) <- all_params
+  
+  # A. The Global Beta (Reference) always gets a weight of 1
+  L[global_name] <- 1
+  
+  # B. Identify Core vs Low parameters
+  all_offset_names <- grep(offset_pattern, all_params, value = TRUE)
+  low_param_name <- all_offset_names[grep("_LOW$", all_offset_names)]
+  core_param_names <- setdiff(all_offset_names, low_param_name)
+  
+  # C. Assign Weights to L
+  # Individual core vessels each represent 1/N of the fleet
+  if(length(core_param_names) > 0) {
+    L[core_param_names] <- 1 / n_total
+  }
+  
+  # The LOW parameter represents n_low/N of the fleet
+  if(length(low_param_name) > 0) {
+    L[low_param_name] <- n_low / n_total
+  }
+  
+  # D. Calculate Variance of the weighted sum: L %*% VCOV %*% t(L)
+  var_avg <- t(L) %*% vcov_mat %*% L
+  se_avg <- sqrt(as.numeric(var_avg))
+  
+  # E. Calculate Weighted Estimate
+  core_est_sum <- sum(res_table[core_param_names, "Estimate"]) / n_total
+  low_est_sum <- (res_table[low_param_name, "Estimate"] * n_low) / n_total
+  
+  fleet_est <- res_table[global_name, "Estimate"] + core_est_sum + low_est_sum
+  
+  # F. Derived Stats
+  z_score <- fleet_est / se_avg
+  p_val <- 2 * (1 - pnorm(abs(z_score)))
+  
+  return(data.frame(
+    Estimate = fleet_est,
+    Std_Error = se_avg,
+    z_score = z_score,
+    p_value = p_val,
+    row.names = global_name
+  ))
+}
+
+stats_first <- get_fleet_stats("beta_profit_first", "^beta_vessel_first_", results_profit_vessel)
+stats_not_first <- get_fleet_stats("beta_profit_not_first", "^beta_vessel_not_first_", results_profit_vessel)
+fleet_summary <- rbind(stats_first, stats_not_first)
 
 # --- Save model results ---
 
-master_results <- results_profit_vessel$results %>%
-  # 1. Convert row names into an actual column called 'Variable'
-  as.data.frame() %>%
+final_results <- fleet_summary %>%
   tibble::rownames_to_column(var = "Variable") %>%
-  
+  # Add metadata
   mutate(
-    # 2. Clean up the variable names
-    variable = case_when(
-      Variable == "beta_profit_first"     ~ "profit_first",
-      Variable == "beta_profit_not_first" ~ "profit_not_first",
-      grepl("beta_vessel_", Variable)     ~ gsub("beta_vessel_", "", Variable),
-      TRUE                                ~ Variable
-    ),
-    
-    # 2. Add your specific metadata
-    IOPAC_PORT_GROUP = "NEWP",
+    IOPAC_PORT_GROUP = "SCWA",
     min_haul         = 1,
     obs              = nrow(main_data),
     unique_zones     = length(unique_zones),
@@ -481,33 +553,28 @@ master_results <- results_profit_vessel$results %>%
   )
 
 # Save the combined file
-saveRDS(master_results, 
-        file = here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "complete_model_outputs_NEWP.rds"))
-
-## check
-
-# Count hauls per vessel in Newport
-vessel_haul_counts <- main_data %>%
-  group_by(vessel_id) %>%
-  tally(name = "num_hauls") %>%
-  arrange(num_hauls)
-
-print(vessel_haul_counts)
-
-# Summary of the distribution
-summary(vessel_haul_counts$num_hauls)
-nrow(vessel_haul_counts[vessel_haul_counts$num_hauls < 20, ])
+saveRDS(final_results, 
+        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "model_outputs_SCWA.rds"))
 
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
 # ----------------------------- PROFIT MODEL -----------------------------------
 
 # --- Predict baseline probabilities ---
-predicted_probabilities_profit <- predict_choice_probs(results_profit_vessel, all_covariates)
+fleet_betas <- c(beta_profit_first = stats_first$Estimate, 
+                 beta_profit_not_first = stats_not_first$Estimate)
+
+fleet_covariates <- list(profit_first = covariates_base$profit_first,
+                         profit_not_first = covariates_base$profit_not_first)
+
+fleet_model_fit <- list(results = data.frame(Estimate = fleet_betas, 
+                                             row.names = names(fleet_betas)))
+
+predicted_probabilities_profit <- predict_choice_probs(fleet_model_fit, fleet_covariates)
 
 # Save data
 predicted_probs_zones_profit <- predicted_probabilities_profit[[2]]
-saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "predicted_probs_zones_profit_NEWP.rds"))
+saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "ppz_SCWA.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -533,15 +600,30 @@ closed_zones_scen1 <- intersect(closed_zones, unique_zones)
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
 
-redistributed_probabilities_scen1_profit <- predict_redistributed_probs(results_profit_vessel, all_covariates, closed_zones_scen1)
+redistributed_probabilities_scen1_profit <- predict_redistributed_probs(fleet_model_fit, fleet_covariates, closed_zones_scen1)
 
 # Save data
 redist_probs_zones_scen1_profit <- redistributed_probabilities_scen1_profit[[2]]
-saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "redist_probs_zones_scen1_profit_NEWP.rds"))
+saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "rpz_scen1_SCWA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
 # values would indicate gains)
+
+# Create a specialized fit object for the welfare function
+# We use the fleet-wide averages and a simplified covariance matrix
+fleet_welfare_input <- list(
+  results = data.frame(
+    Estimate = c(stats_first$Estimate, stats_not_first$Estimate),
+    row.names = c("beta_profit_first", "beta_profit_not_first")
+  ),
+  # Construct a 2x2 covariance matrix for the averages
+  sdr = list(
+    cov.fixed = matrix(c(stats_first$Std_Error^2, 0, 
+                         0, stats_not_first$Std_Error^2), 
+                       nrow = 2, ncol = 2)
+  )
+)
 
 # ------ Marginal Utility of Income: Profit ------
 # Create the logical vector: TRUE if it's the first haul, FALSE otherwise
@@ -550,8 +632,8 @@ main_data$is_first <- main_data$haul_counter == 1
 if (length(closed_zones_scen1) > 0) {
 
 ## profit
-welfare_output_scen1_profit <- calculate_welfare_change(model_fit = results_profit_vessel,
-                                                        covariate_list = all_covariates,
+welfare_output_scen1_profit <- calculate_welfare_change(model_fit = fleet_welfare_input,
+                                                        covariate_list = fleet_covariates,
                                                         closed_zones = closed_zones_scen1,
                                                         first_haul_idx = 1,           # Position of Profit (First Haul) Beta
                                                         other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
@@ -613,11 +695,11 @@ closed_zones_scen2 <- intersect(closed_zones, unique_zones)
 # First item in list is redistributed probabilities for each trip
 # Second item is redistributed probabilities for each zone
 
-redistributed_probabilities_scen2_profit <- predict_redistributed_probs(results_profit_vessel, all_covariates, closed_zones_scen2)
+redistributed_probabilities_scen2_profit <- predict_redistributed_probs(fleet_model_fit, fleet_covariates, closed_zones_scen2)
 
 # Save data
 redist_probs_zones_scen2_profit <- redistributed_probabilities_scen2_profit[[2]]
-saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "redist_probs_zones_scen2_profit_NEWP.rds"))
+saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "rpz_scen2_SCWA.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
@@ -627,8 +709,8 @@ saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential",
 
 if (length(closed_zones_scen1) > 0) {
   
-welfare_output_scen2_profit <- calculate_welfare_change(model_fit = results_profit_vessel,
-                                                        covariate_list = all_covariates,
+welfare_output_scen2_profit <- calculate_welfare_change(model_fit = fleet_welfare_input,
+                                                        covariate_list = fleet_covariates,
                                                         closed_zones = closed_zones_scen2,
                                                         first_haul_idx = 1,           # Position of profit (First Haul) Beta
                                                         other_haul_idx = 2,           # Position of profit (Subsequent) Beta
@@ -675,7 +757,7 @@ welfare_results_profit_vessel <- bind_rows(
   mutate(welfare_per_trip_scen2_profit, scenario = 2, closed_val = length(closed_zones_scen2))
 ) %>%
   mutate(
-    IOPAC_PORT_GROUP = "NEWP",
+    IOPAC_PORT_GROUP = "SCWA",
     beta_samples     = 1000,
     unique_zones     = length(zOut$table$n),
     closed_zones     = closed_val,
@@ -686,4 +768,4 @@ welfare_results_profit_vessel <- bind_rows(
 
 # Save the combined file
 saveRDS(welfare_results_profit_vessel, 
-        file = here::here("data", "confidential", "FishSETfolder", "NEWP", "output", "complete_welfare_outputs_profit_NEWP.rds"))
+        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "welfare_outputs_SCWA.rds"))

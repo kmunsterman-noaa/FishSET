@@ -38,43 +38,43 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# NEWP -----------------------------------------------------------------------
+# SCWA -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "NEWP"
+project <- "SCWA"
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-NEWP_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/NEWPORT.rds"
+SCWA_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/SOUTH AND CENTRAL WA COAST.rds"
 update_folderpath()
-load_maindata(NEWP_data, project = "NEWP", over_write = TRUE)
-NEWPMainDataTable <- table_view("NEWPMainDataTable", 
-                                project = "NEWP")
+load_maindata(SCWA_data, project = "SCWA", over_write = TRUE)
+SCWAMainDataTable <- table_view("SCWAMainDataTable", 
+                                project = "SCWA")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "NEWP")
-NEWP5x5SpatTable <- table_view("NEWP5x5SpatTable",
-                               project = "NEWP")
+load_spatial(spat, name = "5x5", project = "SCWA")
+SCWA5x5SpatTable <- table_view("SCWA5x5SpatTable",
+                               project = "SCWA")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "NEWP")
-NEWPPortTable <- table_view("NEWPPortTable",
-                            project = "NEWP")
+load_port(ports, port_name = "port_code", project = "SCWA")
+SCWAPortTable <- table_view("SCWAPortTable",
+                            project = "SCWA")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Assign zone ID for primary data
 
-NEWPMainDataTable <- assignment_column(dat = NEWPMainDataTable, 
+SCWAMainDataTable <- assignment_column(dat = SCWAMainDataTable, 
                                        project = project, 
-                                       spat = NEWP5x5SpatTable,
+                                       spat = SCWA5x5SpatTable,
                                        lon.dat = "centro_lon", 
                                        lat.dat = "centro_lat", 
                                        cat = "GRID5KM_ID", 
@@ -82,8 +82,8 @@ NEWPMainDataTable <- assignment_column(dat = NEWPMainDataTable,
 
 # Plot zone summary
 
-zone_summary(dat = NEWPMainDataTable, 
-             spat = NEWP5x5SpatTable, 
+zone_summary(dat = SCWAMainDataTable, 
+             spat = SCWA5x5SpatTable, 
              project = project, 
              zone.dat = "new_zoneID", 
              zone.spat = "GRID5KM_ID", 
@@ -91,7 +91,7 @@ zone_summary(dat = NEWPMainDataTable,
 
 # Create centroid
 
-create_centroid(spat = NEWP5x5SpatTable, 
+create_centroid(spat = SCWA5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -99,7 +99,7 @@ create_centroid(spat = NEWP5x5SpatTable,
 
 # Starting location
 
-NEWPMainDataTable <- change_class(dat = NEWPMainDataTable, 
+SCWAMainDataTable <- change_class(dat = SCWAMainDataTable, 
                                   project = project, 
                                   x = "startingloc", 
                                   new_class = 'character', 
@@ -108,43 +108,43 @@ NEWPMainDataTable <- change_class(dat = NEWPMainDataTable,
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-NEWPMainDataTable <- nan_filter(NEWPMainDataTable, 
+SCWAMainDataTable <- nan_filter(SCWAMainDataTable, 
                                 project = project, 
                                 remove = TRUE,
                                 over_write = TRUE)
 
-NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
                                project = project,
                                x = "tow_r",
                                remove = TRUE,
                                over_write = TRUE)
 
-NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
                                 project = project,
                                 x = "date_time",
                                 remove = TRUE,
                                 over_write = TRUE)
 
-NEWPMainDataTable <- na_filter(NEWPMainDataTable, 
+SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
                                project = project,
                                x = "port_zoneID",
                                remove = TRUE,
                                over_write = TRUE)
 
 # Alternative choice
-create_alternative_choice(dat = NEWPMainDataTable, 
+create_alternative_choice(dat = SCWAMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "startingloc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
                           zoneID = "new_zoneID", 
-                          zone.cent.name = "NEWPZoneCentroid")
+                          zone.cent.name = "SCWAZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = NEWPMainDataTable[z_ind, ], 
-                     spat = NEWP5x5SpatTable, 
+zOut <- zone_summary(dat = SCWAMainDataTable[z_ind, ], 
+                     spat = SCWA5x5SpatTable, 
                      project = project, 
                      zone.dat = "new_zoneID",
                      zone.spat = "GRID5KM_ID", 
@@ -155,7 +155,7 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = NEWPMainDataTable, 
+create_expectations(dat = SCWAMainDataTable, 
                     project = project,
                     name = "exp1",
                     catch = "tow_r",
@@ -170,7 +170,7 @@ create_expectations(dat = NEWPMainDataTable,
 
 # Check model data
 
-check_model_data(NEWPMainDataTable, 
+check_model_data(SCWAMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
