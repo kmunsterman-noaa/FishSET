@@ -290,7 +290,7 @@ pivot_to_wide_matrices <- function(data, id_col, names_from_col, values_to_sprea
 ## Note: This is completed in rtmb_gfbt_prep.R
 
 # Set the FishSET project name
-project <- "SCWA"
+project <- "MORRO"
 update_folderpath()
 
 # DATA PREPARATION --------------------------------------------------------------------------------
@@ -407,8 +407,7 @@ vessel_haul_counts <- main_data %>%
   tally(name = "num_hauls") %>%
   arrange(desc(num_hauls))
 
-# We set the threshold at the 25th percentile (1st Quartile)
-# This identifies the 'thin tail' regardless of whether it's 5 hauls or 50.
+# Set threshold to 25th percentile (1st Quartile)
 threshold <- quantile(vessel_haul_counts$num_hauls, 0.25)
 
 # Separate vessels into Core and Low-Frequency
@@ -543,10 +542,12 @@ final_results <- fleet_summary %>%
   tibble::rownames_to_column(var = "Variable") %>%
   # Add metadata
   mutate(
-    IOPAC_PORT_GROUP = "SCWA",
+    IOPAC_PORT_GROUP = "MORRO",
     min_haul         = 1,
     obs              = nrow(main_data),
     unique_zones     = length(unique_zones),
+    pseudo_R2      = results_profit_vessel$results$pseudo_r2[1],
+    log_likelihood = results_profit_vessel$results$log_likelihood[1],
     
     # 3. Calculate AIC (using the NLL/objective from the fit)
     AIC = (2 * length(results_profit_vessel$fit$par)) + (2 * results_profit_vessel$fit$objective)
@@ -554,7 +555,7 @@ final_results <- fleet_summary %>%
 
 # Save the combined file
 saveRDS(final_results, 
-        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "model_outputs_SCWA.rds"))
+        file = here::here("data", "confidential", "FishSETfolder", "MORRO", "output", "model_outputs_MORRO.rds"))
 
 # POLICY SIMULATION AND WELFARE ANALYSIS ---------------------------------------
 
@@ -574,7 +575,7 @@ predicted_probabilities_profit <- predict_choice_probs(fleet_model_fit, fleet_co
 
 # Save data
 predicted_probs_zones_profit <- predicted_probabilities_profit[[2]]
-saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "ppz_SCWA.rds"))
+saveRDS(predicted_probs_zones_profit, file=here::here("data", "confidential", "FishSETfolder", "MORRO", "output", "ppz_MORRO.rds"))
 
 # --- Load and process the zone closure scenario ---
 
@@ -604,7 +605,7 @@ redistributed_probabilities_scen1_profit <- predict_redistributed_probs(fleet_mo
 
 # Save data
 redist_probs_zones_scen1_profit <- redistributed_probabilities_scen1_profit[[2]]
-saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "rpz_scen1_SCWA.rds"))
+saveRDS(redist_probs_zones_scen1_profit, file=here::here("data", "confidential", "FishSETfolder", "MORRO", "output", "rpz_scen1_MORRO.rds"))
 
 # --- Run welfare analysis ---
 # The losses are reported as positive values in the output (thus, negative 
@@ -626,49 +627,98 @@ fleet_welfare_input <- list(
 )
 
 # ------ Marginal Utility of Income: Profit ------
-# Create the logical vector: TRUE if it's the first haul, FALSE otherwise
 main_data$is_first <- main_data$haul_counter == 1
 
 if (length(closed_zones_scen1) > 0) {
-
-## profit
-welfare_output_scen1_profit <- calculate_welfare_change(model_fit = fleet_welfare_input,
-                                                        covariate_list = fleet_covariates,
-                                                        closed_zones = closed_zones_scen1,
-                                                        first_haul_idx = 1,           # Position of Profit (First Haul) Beta
-                                                        other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
-                                                        is_first_haul_vec = main_data$is_first, 
-                                                        beta_samples = 1000)
-
-# Calculate mean welfare loss per TRIP
-
-# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
-trip_simulations_scen1_profit <- as.data.frame(welfare_output_scen1_profit) %>%
-  mutate(trip_id = main_data$trip_id) %>%
-  group_by(trip_id) %>%
-  summarise(across(starts_with("V"), sum))
-
-# 2. Calculate the mean and SD across the entire datasets
-welfare_per_trip_scen1_profit <- trip_simulations_scen1_profit %>%
-  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
-  mutate(welfare_loss = -welfare) %>% 
-  summarise(
-    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
-    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "profit")
-
-# View results
-head(welfare_per_trip_scen1_profit)
-
+  
+  ## profit
+  welfare_output_scen1_profit <- calculate_welfare_change(
+    model_fit = fleet_welfare_input,
+    covariate_list = fleet_covariates,
+    closed_zones = closed_zones_scen1,
+    first_haul_idx = 1,           # Position of Profit (First Haul) Beta
+    other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
+    is_first_haul_vec = main_data$is_first, 
+    beta_samples = 1000
+  )
+  
+  haul_simulations <- as.data.frame(welfare_output_scen1_profit) %>%
+    mutate(
+      trip_id = main_data$trip_id,
+      vessel_id = main_data$vessel_id, 
+      year = main_data$year            
+    )
+  
+  # ---------------------------------------------------------
+  # 1. Calculate the Expected Loss for every Trip
+  # ---------------------------------------------------------
+  # Sum hauls into trips
+  trip_simulations <- haul_simulations %>%
+    group_by(year, vessel_id, trip_id) %>%
+    summarise(across(matches("^V[0-9]+$"), sum), .groups = "drop")
+  
+  # Calculate the mean across the 1,000 simulations for each trip
+  expected_trip_losses <- trip_simulations %>%
+    tidyr::pivot_longer(cols = matches("^V[0-9]+$"), names_to = "sim", values_to = "welfare") %>%
+    mutate(welfare_loss = -welfare) %>%
+    group_by(year, vessel_id, trip_id) %>%
+    summarise(exp_trip_loss = mean(welfare_loss, na.rm = TRUE), .groups = "drop")
+  
+  # ---------------------------------------------------------
+  # 2. Metric 1: Mean loss per vessel per trip (SD across vessels)
+  # ---------------------------------------------------------
+  metric_1 <- expected_trip_losses %>%
+    group_by(vessel_id) %>%
+    summarise(vessel_avg_trip_loss = mean(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_per_vessel_trip = mean(vessel_avg_trip_loss, na.rm = TRUE),
+      sd_loss_per_vessel_trip = sd(vessel_avg_trip_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 3. Metric 2: Mean loss per vessel per year (SD across vessels)
+  # ---------------------------------------------------------
+  metric_2 <- expected_trip_losses %>%
+    group_by(vessel_id, year) %>%
+    summarise(annual_loss = sum(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    group_by(vessel_id) %>%
+    summarise(vessel_avg_annual_loss = mean(annual_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_per_vessel_year = mean(vessel_avg_annual_loss, na.rm = TRUE),
+      sd_loss_per_vessel_year = sd(vessel_avg_annual_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 4. Metric 3: Mean loss per year at port-level (SD across years)
+  # ---------------------------------------------------------
+  metric_3 <- expected_trip_losses %>%
+    group_by(year) %>%
+    summarise(port_annual_loss = sum(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_port_year = mean(port_annual_loss, na.rm = TRUE),
+      sd_loss_port_year = sd(port_annual_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 5. Combine all Scenario 1
+  # ---------------------------------------------------------
+  welfare_summary_scen1_profit <- bind_cols(metric_1, metric_2, metric_3) %>%
+    mutate(mui = "profit")
+  
+  print(welfare_summary_scen1_profit)
+  
 } else {
   
-  # SKIP ANALYSIS: Create dummy row with 0s
+  # SKIP ANALYSIS: Create dummy row with 0s (For ports with no overlap)
   message("Scenario 1: No overlap found for this port. Filling with zeros.")
   
-  welfare_per_trip_scen1_profit <- data.frame(
-    mean_welfare_loss = 0,
-    sd_welfare_loss = 0,
+  welfare_summary_scen1_profit <- data.frame(
+    mean_loss_per_vessel_trip = 0,
+    sd_loss_per_vessel_trip = 0,
+    mean_loss_per_vessel_year = 0,
+    sd_loss_per_vessel_year = 0,
+    mean_loss_port_year = 0,
+    sd_loss_port_year = 0,
     mui = "profit"
   )
 }
@@ -699,53 +749,101 @@ redistributed_probabilities_scen2_profit <- predict_redistributed_probs(fleet_mo
 
 # Save data
 redist_probs_zones_scen2_profit <- redistributed_probabilities_scen2_profit[[2]]
-saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "rpz_scen2_SCWA.rds"))
+saveRDS(redist_probs_zones_scen2_profit, file=here::here("data", "confidential", "FishSETfolder", "MORRO", "output", "rpz_scen2_MORRO.rds"))
 
-# --- Run welfare analysis ---
-# The losses are reported as positive values in the output (thus, negative 
-# values would indicate gains)
+# ------ Marginal Utility of Income: Profit ------
+main_data$is_first <- main_data$haul_counter == 1
 
-## profit
-
-if (length(closed_zones_scen1) > 0) {
+if (length(closed_zones_scen2) > 0) {
   
-welfare_output_scen2_profit <- calculate_welfare_change(model_fit = fleet_welfare_input,
-                                                        covariate_list = fleet_covariates,
-                                                        closed_zones = closed_zones_scen2,
-                                                        first_haul_idx = 1,           # Position of profit (First Haul) Beta
-                                                        other_haul_idx = 2,           # Position of profit (Subsequent) Beta
-                                                        is_first_haul_vec = main_data$is_first, 
-                                                        beta_samples = 1000)
+  ## profit
+  welfare_output_scen2_profit <- calculate_welfare_change(
+    model_fit = fleet_welfare_input,
+    covariate_list = fleet_covariates,
+    closed_zones = closed_zones_scen2,
+    first_haul_idx = 1,           # Position of Profit (First Haul) Beta
+    other_haul_idx = 2,           # Position of Profit (Subsequent) Beta
+    is_first_haul_vec = main_data$is_first, 
+    beta_samples = 1000
+  )
+  
+  haul_simulations <- as.data.frame(welfare_output_scen2_profit) %>%
+    mutate(
+      trip_id = main_data$trip_id,
+      vessel_id = main_data$vessel_id, 
+      year = main_data$year            
+    )
+  
+  # ---------------------------------------------------------
+  # 1. Calculate the Expected Loss for every Trip
+  # ---------------------------------------------------------
+  # Sum hauls into trips
+  trip_simulations <- haul_simulations %>%
+    group_by(year, vessel_id, trip_id) %>%
+    summarise(across(matches("^V[0-9]+$"), sum), .groups = "drop")
+  
+  # Calculate the mean across the 1,000 simulations for each trip
+  expected_trip_losses <- trip_simulations %>%
+    tidyr::pivot_longer(cols = matches("^V[0-9]+$"), names_to = "sim", values_to = "welfare") %>%
+    mutate(welfare_loss = -welfare) %>%
+    group_by(year, vessel_id, trip_id) %>%
+    summarise(exp_trip_loss = mean(welfare_loss, na.rm = TRUE), .groups = "drop")
+  
+  # ---------------------------------------------------------
+  # 2. Metric 1: Mean loss per vessel per trip (SD across vessels)
+  # ---------------------------------------------------------
+  metric_1 <- expected_trip_losses %>%
+    group_by(vessel_id) %>%
+    summarise(vessel_avg_trip_loss = mean(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_per_vessel_trip = mean(vessel_avg_trip_loss, na.rm = TRUE),
+      sd_loss_per_vessel_trip = sd(vessel_avg_trip_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 3. Metric 2: Mean loss per vessel per year (SD across vessels)
+  # ---------------------------------------------------------
+  metric_2 <- expected_trip_losses %>%
+    group_by(vessel_id, year) %>%
+    summarise(annual_loss = sum(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    group_by(vessel_id) %>%
+    summarise(vessel_avg_annual_loss = mean(annual_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_per_vessel_year = mean(vessel_avg_annual_loss, na.rm = TRUE),
+      sd_loss_per_vessel_year = sd(vessel_avg_annual_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 4. Metric 3: Mean loss per year at port-level (SD across years)
+  # ---------------------------------------------------------
+  metric_3 <- expected_trip_losses %>%
+    group_by(year) %>%
+    summarise(port_annual_loss = sum(exp_trip_loss, na.rm = TRUE), .groups = "drop") %>%
+    summarise(
+      mean_loss_port_year = mean(port_annual_loss, na.rm = TRUE),
+      sd_loss_port_year = sd(port_annual_loss, na.rm = TRUE)
+    )
+  
+  # ---------------------------------------------------------
+  # 5. Combine all Scenario 2
+  # ---------------------------------------------------------
+  welfare_summary_scen2_profit <- bind_cols(metric_1, metric_2, metric_3) %>%
+    mutate(mui = "profit")
 
-# Calculate mean welfare loss per TRIP
-
-# 1. Sum all hauls (first + all others) for each of the 1,000 simulations per trip
-trip_simulations_scen2_profit <- as.data.frame(welfare_output_scen2_profit) %>%
-  mutate(trip_id = main_data$trip_id) %>%
-  group_by(trip_id) %>%
-  summarise(across(starts_with("V"), sum))
-
-# 2. Calculate the mean and SD across the entire datasets
-welfare_per_trip_scen2_profit <- trip_simulations_scen2_profit %>%
-  tidyr::pivot_longer(cols = -trip_id, names_to = "sim", values_to = "welfare") %>%
-  mutate(welfare_loss = -welfare) %>% 
-  summarise(
-    mean_welfare_loss = mean(welfare_loss, na.rm=TRUE),
-    sd_welfare_loss = sd(welfare_loss, na.rm = TRUE)
-  ) %>%
-  mutate(mui = "profit")
-
-# View results
-head(welfare_per_trip_scen2_profit)
-
+  print(welfare_summary_scen2_profit)
+  
 } else {
   
-  # SKIP ANALYSIS: Create dummy row with 0s
+  # SKIP ANALYSIS: Create dummy row with 0s (For ports with no overlap)
   message("Scenario 2: No overlap found for this port. Filling with zeros.")
   
-  welfare_per_trip_scen2_profit <- data.frame(
-    mean_welfare_loss = 0,
-    sd_welfare_loss = 0,
+  welfare_summary_scen2_profit <- data.frame(
+    mean_loss_per_vessel_trip = 0,
+    sd_loss_per_vessel_trip = 0,
+    mean_loss_per_vessel_year = 0,
+    sd_loss_per_vessel_year = 0,
+    mean_loss_port_year = 0,
+    sd_loss_port_year = 0,
     mui = "profit"
   )
 }
@@ -753,11 +851,11 @@ head(welfare_per_trip_scen2_profit)
 # --- Save welfare results ---
 
 welfare_results_profit_vessel <- bind_rows(
-  mutate(welfare_per_trip_scen1_profit, scenario = 1, closed_val = length(closed_zones_scen1)),
-  mutate(welfare_per_trip_scen2_profit, scenario = 2, closed_val = length(closed_zones_scen2))
+  mutate(welfare_summary_scen1_profit, scenario = 1, closed_val = length(closed_zones_scen1)),
+  mutate(welfare_summary_scen2_profit, scenario = 2, closed_val = length(closed_zones_scen2))
 ) %>%
   mutate(
-    IOPAC_PORT_GROUP = "SCWA",
+    IOPAC_PORT_GROUP = "MORRO",
     beta_samples     = 1000,
     unique_zones     = length(zOut$table$n),
     closed_zones     = closed_val,
@@ -768,4 +866,4 @@ welfare_results_profit_vessel <- bind_rows(
 
 # Save the combined file
 saveRDS(welfare_results_profit_vessel, 
-        file = here::here("data", "confidential", "FishSETfolder", "SCWA", "output", "welfare_outputs_SCWA.rds"))
+        file = here::here("data", "confidential", "FishSETfolder", "MORRO", "output", "welfare_outputs_MORRO.rds"))

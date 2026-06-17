@@ -38,43 +38,43 @@ spat <- "~/Documents/GitHub/FishSET/data/non-confidential/shape_files/5km_grid/m
 ports <- "~/Documents/GitHub/FishSET/data/non-confidential/other/port_coords.csv"
 
 # ==============================================================================
-# SCWA -----------------------------------------------------------------------
+# MORRO -----------------------------------------------------------------------
 # ==============================================================================
 
 # Set project variables
 
-project <- "SCWA"
+project <- "MORRO"
 
 #   Main Data
 #   fisher-behavior-displacement::fishet_prep.R
 
-SCWA_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/SOUTH AND CENTRAL WA COAST.rds"
+MORRO_data <- "~/Documents/GitHub/FishSET/data/confidential/rds/iopac_return/MORRO.rds"
 update_folderpath()
-load_maindata(SCWA_data, project = "SCWA", over_write = TRUE)
-SCWAMainDataTable <- table_view("SCWAMainDataTable", 
-                                project = "SCWA")
+load_maindata(MORRO_data, project = "MORRO", over_write = TRUE)
+MORROMainDataTable <- table_view("MORROMainDataTable", 
+                                project = "MORRO")
 
 #   Spatial Data
 #   5x5 km grid
 
-load_spatial(spat, name = "5x5", project = "SCWA")
-SCWA5x5SpatTable <- table_view("SCWA5x5SpatTable",
-                               project = "SCWA")
+load_spatial(spat, name = "5x5", project = "MORRO")
+MORRO5x5SpatTable <- table_view("MORRO5x5SpatTable",
+                               project = "MORRO")
 
 #   Port Data
 #   Port coordinates
 
-load_port(ports, port_name = "port_code", project = "SCWA")
-SCWAPortTable <- table_view("SCWAPortTable",
-                            project = "SCWA")
+load_port(ports, port_name = "port_code", project = "MORRO")
+MORROPortTable <- table_view("MORROPortTable",
+                            project = "MORRO")
 
 # DATA PREP --------------------------------------------------------------------
 
 # Assign zone ID for primary data
 
-SCWAMainDataTable <- assignment_column(dat = SCWAMainDataTable, 
+MORROMainDataTable <- assignment_column(dat = MORROMainDataTable, 
                                        project = project, 
-                                       spat = SCWA5x5SpatTable,
+                                       spat = MORRO5x5SpatTable,
                                        lon.dat = "centro_lon", 
                                        lat.dat = "centro_lat", 
                                        cat = "GRID5KM_ID", 
@@ -82,8 +82,8 @@ SCWAMainDataTable <- assignment_column(dat = SCWAMainDataTable,
 
 # Plot zone summary
 
-zone_summary(dat = SCWAMainDataTable, 
-             spat = SCWA5x5SpatTable, 
+zone_summary(dat = MORROMainDataTable, 
+             spat = MORRO5x5SpatTable, 
              project = project, 
              zone.dat = "new_zoneID", 
              zone.spat = "GRID5KM_ID", 
@@ -91,7 +91,7 @@ zone_summary(dat = SCWAMainDataTable,
 
 # Create centroid
 
-create_centroid(spat = SCWA5x5SpatTable, 
+create_centroid(spat = MORRO5x5SpatTable, 
                 project = project, 
                 spatID = "GRID5KM_ID", 
                 type = "zonal centroid", 
@@ -99,7 +99,7 @@ create_centroid(spat = SCWA5x5SpatTable,
 
 # Starting location
 
-SCWAMainDataTable <- change_class(dat = SCWAMainDataTable, 
+MORROMainDataTable <- change_class(dat = MORROMainDataTable, 
                                   project = project, 
                                   x = "startingloc", 
                                   new_class = 'character', 
@@ -108,43 +108,43 @@ SCWAMainDataTable <- change_class(dat = SCWAMainDataTable,
 # DATA QA/QC -------------------------------------------------------------------
 
 # Check NAs 
-SCWAMainDataTable <- nan_filter(SCWAMainDataTable, 
+MORROMainDataTable <- nan_filter(MORROMainDataTable, 
                                 project = project, 
                                 remove = TRUE,
                                 over_write = TRUE)
 
-SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
+MORROMainDataTable <- na_filter(MORROMainDataTable, 
                                project = project,
                                x = "tow_r",
                                remove = TRUE,
                                over_write = TRUE)
 
-SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
+MORROMainDataTable <- na_filter(MORROMainDataTable, 
                                 project = project,
                                 x = "date_time",
                                 remove = TRUE,
                                 over_write = TRUE)
 
-SCWAMainDataTable <- na_filter(SCWAMainDataTable, 
+MORROMainDataTable <- na_filter(MORROMainDataTable, 
                                project = project,
                                x = "port_zoneID",
                                remove = TRUE,
                                over_write = TRUE)
 
 # Alternative choice
-create_alternative_choice(dat = SCWAMainDataTable, 
+create_alternative_choice(dat = MORROMainDataTable, 
                           project = project, 
                           occasion = "zonal centroid", 
                           occasion_var = "startingloc",
                           alt_var = "zonal centroid", 
                           min.haul = 1, 
                           zoneID = "new_zoneID", 
-                          zone.cent.name = "SCWAZoneCentroid")
+                          zone.cent.name = "MORROZoneCentroid")
 
 z_ind <- which(alt_choice_list(project)$dataZoneTrue == 1)
 
-zOut <- zone_summary(dat = SCWAMainDataTable[z_ind, ], 
-                     spat = SCWA5x5SpatTable, 
+zOut <- zone_summary(dat = MORROMainDataTable[z_ind, ], 
+                     spat = MORRO5x5SpatTable, 
                      project = project, 
                      zone.dat = "new_zoneID",
                      zone.spat = "GRID5KM_ID", 
@@ -155,7 +155,7 @@ zOut$plot
 
 # Create expected catch matrices
 
-create_expectations(dat = SCWAMainDataTable, 
+create_expectations(dat = MORROMainDataTable, 
                     project = project,
                     name = "exp1",
                     catch = "tow_r",
@@ -170,7 +170,7 @@ create_expectations(dat = SCWAMainDataTable,
 
 # Check model data
 
-check_model_data(SCWAMainDataTable, 
+check_model_data(MORROMainDataTable, 
                  project = project, 
                  uniqueID = "haul_id", 
                  latlon = c("centro_lon","centro_lat"))
